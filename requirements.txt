@@ -1,0 +1,14 @@
+# --- pipeline (as before) ---
+langgraph
+requests
+python-dotenv
+gpt-researcher
+ddgs  # DuckDuckGo search retriever — gpt-researcher's fallback when TAVILY_API_KEY isn't set
+
+# --- backend API for the React UI ---
+fastapi
+uvicorn[standard]
+python-multipart
+
+# --- quality & security agent ---
+llm-guard
