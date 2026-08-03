@@ -53,11 +53,16 @@ _EXPECTED_ENV_VARS = ["TAVILY_API_KEY"]
 # for Generation to use later, once both branches have joined).
 _SCOPE_PROMPT = """Based ONLY on the tender document provided, answer in ONE short \
 sentence (max ~30 words, no markdown, no preamble): what specific product, service, \
-or work is being procured, and in what sector/domain? Be concrete...
+or work is being procured, and in what sector/domain? Be concrete (e.g. name the \
+type of system, industry, or deliverable) rather than generic."""
 
-Also state the approximate total budget if mentioned in the document."""
+_BUDGET_PROMPT = """Based ONLY on the tender document provided, state the total \
+budget or price ceiling if one is mentioned (include currency and amount only, \
+e.g. "USD 380,000"). If no budget or price range is stated anywhere in the \
+document, respond with exactly: none stated"""
 
 _FALLBACK_SCOPE = "the scope of this tender"
+_FALLBACK_BUDGET = "none stated"
 
 
 def _get_scope_from_tender(workspace_slug: str) -> str:
@@ -77,10 +82,33 @@ def _get_scope_from_tender(workspace_slug: str) -> str:
         return _FALLBACK_SCOPE
 
 
-def _build_query(scope: str, selection_method: str | None = None) -> str:
+def _get_budget_from_tender(workspace_slug: str) -> str:
+    """Independent, lightweight read of the embedded tender doc for the
+    stated budget/price ceiling — same pattern as _get_scope_from_tender.
+    Used to steer GPT Researcher toward firms actually sized to compete
+    for this contract, rather than category-leading enterprise vendors
+    a much bigger budget would attract."""
+    try:
+        client = AnythingLLMClient()
+        response_text = client.chat(workspace_slug, _BUDGET_PROMPT, mode="query")
+        budget = response_text.strip().strip('"')
+        return budget if budget else _FALLBACK_BUDGET
+    except Exception:
+        return _FALLBACK_BUDGET
+
+
+def _build_query(scope: str, budget: str = _FALLBACK_BUDGET, selection_method: str | None = None) -> str:
     """Turn a short scope description into a focused research query
     instead of just researching the raw, noisy tender text."""
-    query = f"small-to-mid-size firms and consultancies (not large enterprise vendors) competing for a project involving: {scope}, with an approximate budget of {budget}."
+    query = (
+        f"market landscape and competing firms/consultants for a project involving: {scope}."
+    )
+    if budget and budget != _FALLBACK_BUDGET:
+        query += (
+            f" The project budget is approximately {budget} — prioritize firms and "
+            f"consultancies realistically sized to compete for a contract at this budget "
+            f"level, not large enterprise vendors whose typical engagements are far larger."
+        )
     if selection_method:
         query += f" Procurement is via {selection_method}."
     query += " Identify likely competitors, their typical positioning, and recent similar awarded projects."
@@ -107,7 +135,8 @@ def research_agent(state: dict) -> dict:
     # the parallel Extraction/Research fan-out even starts.
     workspace_slug = state["workspace_slug"]
     scope = _get_scope_from_tender(workspace_slug)
-    query = _build_query(scope)
+    budget = _get_budget_from_tender(workspace_slug)
+    query = _build_query(scope, budget)
 
     try:
         # research_agent is a plain sync function (LangGraph node), but
