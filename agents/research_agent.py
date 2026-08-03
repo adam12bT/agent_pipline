@@ -35,11 +35,14 @@ to work from instead of a generic placeholder.
 """
 
 import asyncio
+import logging
 import os
 
 from gpt_researcher import GPTResearcher
 
 from anythingllm_client import AnythingLLMClient
+
+logger = logging.getLogger(__name__)
 
 # Env vars GPT Researcher needs by default. If you've configured a
 # different retriever/LLM provider, adjust this list — it's only used
@@ -52,9 +55,11 @@ _EXPECTED_ENV_VARS = ["TAVILY_API_KEY"]
 # benefit (Extraction already produces the full structured requirements
 # for Generation to use later, once both branches have joined).
 _SCOPE_PROMPT = """Based ONLY on the tender document provided, answer in ONE short \
-sentence (max ~30 words, no markdown, no preamble): what specific product, service, \
-or work is being procured, and in what sector/domain? Be concrete (e.g. name the \
-type of system, industry, or deliverable) rather than generic."""
+sentence (max ~40 words, no markdown, no preamble): what specific product, service, \
+or work is being procured, in what sector/domain, and what are the 1-2 most technically \
+or regulatorily distinctive requirements (e.g. a specific integration, an offline/mobile \
+requirement, a named compliance regime)? Be concrete rather than generic — prefer \
+"a national health-exchange API integration" over "system integration"."""
 
 _BUDGET_PROMPT = """Based ONLY on the tender document provided, state the total \
 budget or price ceiling if one is mentioned (include currency and amount only, \
@@ -111,12 +116,41 @@ def _build_query(scope: str, budget: str = _FALLBACK_BUDGET, selection_method: s
         )
     if selection_method:
         query += f" Procurement is via {selection_method}."
-    query += " Identify likely competitors, their typical positioning, and recent similar awarded projects."
+    query += (
+        " Identify likely competitors and their typical positioning. For the 'recent "
+        "similar awarded projects' section: only name a specific project, client, or "
+        "contract if you can point to a real, findable source confirming it (a news "
+        "article, press release, or procurement notice with a date) — do not infer or "
+        "guess a plausible-sounding award from a firm's homepage or service description. "
+        "If no verifiable recent award can be found for a given firm, say so explicitly "
+        "rather than describing a generic, undated project. In the references/sources "
+        "list, include ONLY sources that are actually cited inline in the report body — "
+        "do not list every page visited during research if it wasn't used as a citation."
+    )
     return query
 
 
 async def _run_research(query: str) -> str:
     researcher = GPTResearcher(query=query, report_type="research_report")
+
+    # Setting these directly on `.cfg` after construction rather than via
+    # `config_path=` — passing a config JSON path is a known-unreliable
+    # path in gpt-researcher (values are sometimes silently ignored; see
+    # assafelovic/gpt-researcher issues #489 and #1041). Setting attributes
+    # on the already-constructed Config object is the documented workaround.
+    #
+    # Lower MAX_SEARCH_RESULTS_PER_QUERY and MAX_SUBTOPICS so the report
+    # visits fewer low-value pages (e.g. "Top 40 healthcare consultancies"
+    # listicles) instead of citing every firm mentioned on a page it barely
+    # used — this is what caused the ~50-entry reference list bloat.
+    researcher.cfg.max_search_results_per_query = 4
+    researcher.cfg.max_subtopics = 3
+    researcher.cfg.total_words = 900
+    logger.debug(
+        "GPT Researcher config tuned: max_search_results_per_query=4, "
+        "max_subtopics=3, total_words=900 (source-list bloat mitigation)"
+    )
+
     await researcher.conduct_research()
     report = await researcher.write_report()
     return report
