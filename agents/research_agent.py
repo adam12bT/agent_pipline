@@ -53,8 +53,9 @@ _EXPECTED_ENV_VARS = ["TAVILY_API_KEY"]
 # for Generation to use later, once both branches have joined).
 _SCOPE_PROMPT = """Based ONLY on the tender document provided, answer in ONE short \
 sentence (max ~30 words, no markdown, no preamble): what specific product, service, \
-or work is being procured, and in what sector/domain? Be concrete (e.g. name the \
-type of system, industry, or deliverable) rather than generic."""
+or work is being procured, and in what sector/domain? Be concrete...
+
+Also state the approximate total budget if mentioned in the document."""
 
 _FALLBACK_SCOPE = "the scope of this tender"
 
@@ -79,7 +80,7 @@ def _get_scope_from_tender(workspace_slug: str) -> str:
 def _build_query(scope: str, selection_method: str | None = None) -> str:
     """Turn a short scope description into a focused research query
     instead of just researching the raw, noisy tender text."""
-    query = f"market landscape and competing firms/consultants for a project involving: {scope}."
+    query = f"small-to-mid-size firms and consultancies (not large enterprise vendors) competing for a project involving: {scope}, with an approximate budget of {budget}."
     if selection_method:
         query += f" Procurement is via {selection_method}."
     query += " Identify likely competitors, their typical positioning, and recent similar awarded projects."
