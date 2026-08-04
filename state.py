@@ -39,13 +39,19 @@ class RFPState(TypedDict, total=False):
     verification_errors: list[str]
 
     # --- Extraction agent output (parallel branch) ---
-    requirements: dict             # {deliverables, deadlines, budget, evaluation_criteria, scope_summary}
+    requirements: dict             # {scope_summary, deliverables, deadlines, budget, evaluation_criteria, selection_method}
 
     # --- Research agent output (parallel branch) ---
     research_summary: str          # market/competitor research findings
 
     # --- Generation agent output ---
-    draft_proposal: str            # the generated technical proposal (markdown)
+    draft_proposal: str            # the generated technical proposal (markdown), all sections stitched together
+    draft_sections: dict           # {section_key: section_text} — the same content as draft_proposal, kept
+                                    # unstitched so quality_agent can run per-section hallucination/coherence
+                                    # scans instead of only scoring the whole document at once
+    generation_grounding: str      # requirements/research/references/CVs actually fed to the generation
+                                    # calls, concatenated — the "prompt" quality_agent's FactualConsistency/
+                                    # Relevance scanners check each section against
     generation_attempts: int       # retry counter, capped by the graph
 
     # --- Security agent output (BLOCKING: PII, secrets, malicious/injected content) ---
@@ -54,7 +60,8 @@ class RFPState(TypedDict, total=False):
 
     # --- Quality agent output (GRADED: coherence, template compliance, hallucination risk) ---
     quality_passed: bool
-    quality_report: dict           # {word_count, missing_sections, quality_findings, notes}
+    quality_report: dict           # {word_count, missing_sections, quality_findings,
+                                    #  coherence_hallucination_findings, short_sections, notes}
 
     # --- pipeline control / bookkeeping ---
     status: str                    # "running" | "blocked" | "security_blocked" | "retry_generation" | "done" | "failed"
