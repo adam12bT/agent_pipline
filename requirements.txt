@@ -1,0 +1,16 @@
+# --- pipeline (as before) ---
+langgraph
+requests
+python-dotenv
+gpt-researcher
+ddgs  # DuckDuckGo search retriever — gpt-researcher's fallback when TAVILY_API_KEY isn't set
+langchain-huggingface  # required by gpt-researcher/LangChain when EMBEDDING points at a HuggingFace embedder
+langchain-groq  # gpt-researcher's LLM provider for FAST_LLM/SMART_LLM/STRATEGIC_LLM=groq:... — installing here avoids its broken runtime self-install in this container
+
+# --- backend API for the React UI ---
+fastapi
+uvicorn[standard]
+python-multipart
+
+# --- quality & security agent ---
+llm-guard

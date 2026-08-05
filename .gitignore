@@ -1,0 +1,22 @@
+# Python (rfp-pipeline)
+rfp-pipeline/.venv/
+rfp-pipeline/__pycache__/
+rfp-pipeline/**/__pycache__/
+*.pyc
+
+# Secrets
+.env
+rfp-pipeline/.env
+.venv
+# React frontend
+frontend/node_modules/
+frontend/distgit add 
+
+# AnythingLLM server
+anything-llm-lightweight/node_modules/
+anything-llm-lightweight/server/storage/
+anything-llm-lightweight/.env
+
+# OS junk
+.DS_Store
+Thumbs.db
