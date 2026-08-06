@@ -41,6 +41,16 @@ import os
 from gpt_researcher import GPTResearcher
 
 from anythingllm_client import AnythingLLMClient
+from .prompts import (
+    RESEARCH_SCOPE_PROMPT as _SCOPE_PROMPT,
+    RESEARCH_BUDGET_PROMPT as _BUDGET_PROMPT,
+    RESEARCH_FALLBACK_SCOPE as _FALLBACK_SCOPE,
+    RESEARCH_FALLBACK_BUDGET as _FALLBACK_BUDGET,
+    RESEARCH_QUERY_BASE as _QUERY_BASE,
+    RESEARCH_QUERY_BUDGET_CLAUSE as _QUERY_BUDGET_CLAUSE,
+    RESEARCH_QUERY_SELECTION_METHOD_CLAUSE as _QUERY_SELECTION_METHOD_CLAUSE,
+    RESEARCH_QUERY_GUARDRAILS as _QUERY_GUARDRAILS,
+)
 from providers import get_provider
 from retrieval import get_relevant_chunks
 
@@ -50,26 +60,6 @@ logger = logging.getLogger(__name__)
 # different retriever/LLM provider, adjust this list — it's only used
 # to give a more useful error message, not to enforce anything.
 _EXPECTED_ENV_VARS = ["TAVILY_API_KEY"]
-
-# Deliberately tiny and specific — this is NOT the full extraction prompt.
-# We only need one or two sentences to anchor the research query in the
-# right domain; asking for more would just slow this branch down for no
-# benefit (Extraction already produces the full structured requirements
-# for Generation to use later, once both branches have joined).
-_SCOPE_PROMPT = """Based ONLY on the tender document provided, answer in ONE short \
-sentence (max ~40 words, no markdown, no preamble): what specific product, service, \
-or work is being procured, in what sector/domain, and what are the 1-2 most technically \
-or regulatorily distinctive requirements (e.g. a specific integration, an offline/mobile \
-requirement, a named compliance regime)? Be concrete rather than generic — prefer \
-"a national health-exchange API integration" over "system integration"."""
-
-_BUDGET_PROMPT = """Based ONLY on the tender document provided, state the total \
-budget or price ceiling if one is mentioned (include currency and amount only, \
-e.g. "USD 380,000"). If no budget or price range is stated anywhere in the \
-document, respond with exactly: none stated"""
-
-_FALLBACK_SCOPE = "the scope of this tender"
-_FALLBACK_BUDGET = "none stated"
 
 
 def _get_scope_from_tender(workspace_slug: str) -> str:
@@ -118,28 +108,12 @@ def _get_budget_from_tender(workspace_slug: str) -> str:
 def _build_query(scope: str, budget: str = _FALLBACK_BUDGET, selection_method: str | None = None) -> str:
     """Turn a short scope description into a focused research query
     instead of just researching the raw, noisy tender text."""
-    query = (
-        f"market landscape and competing firms/consultants for a project involving: {scope}."
-    )
+    query = _QUERY_BASE.format(scope=scope)
     if budget and budget != _FALLBACK_BUDGET:
-        query += (
-            f" The project budget is approximately {budget} — prioritize firms and "
-            f"consultancies realistically sized to compete for a contract at this budget "
-            f"level, not large enterprise vendors whose typical engagements are far larger."
-        )
+        query += _QUERY_BUDGET_CLAUSE.format(budget=budget)
     if selection_method:
-        query += f" Procurement is via {selection_method}."
-    query += (
-        " Identify likely competitors and their typical positioning. For the 'recent "
-        "similar awarded projects' section: only name a specific project, client, or "
-        "contract if you can point to a real, findable source confirming it (a news "
-        "article, press release, or procurement notice with a date) — do not infer or "
-        "guess a plausible-sounding award from a firm's homepage or service description. "
-        "If no verifiable recent award can be found for a given firm, say so explicitly "
-        "rather than describing a generic, undated project. In the references/sources "
-        "list, include ONLY sources that are actually cited inline in the report body — "
-        "do not list every page visited during research if it wasn't used as a citation."
-    )
+        query += _QUERY_SELECTION_METHOD_CLAUSE.format(selection_method=selection_method)
+    query += _QUERY_GUARDRAILS
     return query
 
 

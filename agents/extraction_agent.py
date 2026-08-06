@@ -19,6 +19,7 @@ import json
 import re
 
 from anythingllm_client import AnythingLLMClient
+from .prompts import EXTRACTION_PROMPT
 from providers import get_provider
 from retrieval import get_relevant_chunks
 
@@ -26,20 +27,6 @@ _RETRIEVAL_QUERY = (
     "scope of work, deliverables, submission deadline, project duration, "
     "budget, evaluation criteria, selection method"
 )
-
-EXTRACTION_PROMPT = """Based ONLY on the tender document excerpts provided, extract the following \
-information and respond with ONLY a valid JSON object (no markdown fences, no extra text):
-
-{
-  "scope_summary": "2-3 sentence summary of what work is being requested",
-  "deliverables": ["list", "of", "expected", "deliverables"],
-  "deadlines": {"submission_deadline": "date if stated, else null", "project_duration": "if stated, else null"},
-  "budget": "budget or price range if stated, else null",
-  "evaluation_criteria": ["list of how proposals will be scored"],
-  "selection_method": "e.g. QCBS, QBS, LCS, if stated, else null"
-}
-
-If a field cannot be found in the document, use null or an empty list — do not guess."""
 
 
 def _repair_truncated_json(text: str) -> str:

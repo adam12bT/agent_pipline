@@ -7,10 +7,12 @@ rfp-pipeline/**/__pycache__/
 # Secrets
 .env
 rfp-pipeline/.env
-.venv
+.venv/
+venv/
+
 # React frontend
 frontend/node_modules/
-frontend/distgit add 
+frontend/dist/
 
 # AnythingLLM server
 anything-llm-lightweight/node_modules/

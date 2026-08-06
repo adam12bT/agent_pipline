@@ -18,7 +18,7 @@ import traceback
 import uuid
 from typing import Optional
 
-from graph import build_graph
+from agents.graph import build_graph
 
 # Node execution order, used to render a fixed-position stepper in the UI
 # regardless of which nodes have actually run yet. Deliberately excludes

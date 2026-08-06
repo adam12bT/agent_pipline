@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from graph import build_graph  # noqa: E402  (import after load_dotenv on purpose)
+from agents.graph import build_graph  # noqa: E402  (import after load_dotenv on purpose)
 from company_knowledge import ensure_company_workspaces  # noqa: E402
 
 
