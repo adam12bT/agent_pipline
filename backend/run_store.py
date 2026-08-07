@@ -12,6 +12,7 @@ store (Redis, Postgres) if you need multi-process or persistence across
 restarts.
 """
 
+import logging
 import threading
 import time
 import traceback
@@ -19,6 +20,8 @@ import uuid
 from typing import Optional
 
 from agents.graph import build_graph
+
+logger = logging.getLogger(__name__)
 
 # Node execution order, used to render a fixed-position stepper in the UI
 # regardless of which nodes have actually run yet. Deliberately excludes
@@ -102,6 +105,7 @@ def _execute_run(run_id: str):
     if not record:
         return
 
+    logger.info("Run %s: starting pipeline execution", run_id)
     _update_run(run_id, run_status="running")
 
     try:
@@ -129,12 +133,24 @@ def _execute_run(run_id: str):
                 node_status = cumulative_state.get("status")
                 if node_name == "verifier" and not cumulative_state.get("is_verified", True):
                     run_status = "blocked"
+                    logger.warning(
+                        "Run %s: blocked at verification: %s",
+                        run_id, cumulative_state.get("verification_errors"),
+                    )
                 elif node_name == "security" and not cumulative_state.get("security_passed", True):
                     run_status = "security_blocked"
+                    logger.warning(
+                        "Run %s: security-blocked, escalating to human review: %s",
+                        run_id, cumulative_state.get("security_report"),
+                    )
                 elif node_status == "failed":
                     run_status = "failed"
+                    logger.warning("Run %s: pipeline finished with status=failed", run_id)
                 elif node_status == "done":
                     run_status = "done"
+                    logger.info("Run %s: completed successfully", run_id)
+
+                logger.debug("Run %s: stage %r finished (run_status=%s)", run_id, node_name, run_status)
 
                 _update_run(
                     run_id,
@@ -151,6 +167,10 @@ def _execute_run(run_id: str):
             _update_run(run_id, run_status=final["state"].get("status", "done"))
 
     except Exception as e:
+        # This runs in a daemon background thread — if it isn't logged
+        # here, the failure is only ever visible to someone who happens
+        # to poll this specific run's state via the API. Log it loudly.
+        logger.exception("Run %s: pipeline crashed unexpectedly", run_id)
         _update_run(
             run_id,
             run_status="failed",

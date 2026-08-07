@@ -115,10 +115,18 @@ def quality_agent(state: dict) -> dict:
     attempts = state.get("generation_attempts", 0)
     if not passed and attempts < MAX_GENERATION_ATTEMPTS:
         status = "retry_generation"
+        logger.info(
+            "Quality check failed (attempt %d/%d) — retrying generation. Notes: %s",
+            attempts, MAX_GENERATION_ATTEMPTS, notes,
+        )
     elif not passed:
         status = "failed"
+        logger.warning(
+            "Quality check failed after %d attempts — giving up. Notes: %s", attempts, notes,
+        )
     else:
         status = "done"
+        logger.info("Quality check passed.")
 
     return {
         "quality_passed": passed,

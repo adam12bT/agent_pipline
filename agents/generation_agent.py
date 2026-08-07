@@ -1,8 +1,12 @@
+import logging
+
 from anythingllm_client import AnythingLLMClient
 from company_knowledge import PROPOSALS_WORKSPACE, CVS_WORKSPACE, REFERENCES_WORKSPACE
 from .prompts import GENERATION_PROMPT_TEMPLATE
 from providers import get_provider
 from retrieval import get_relevant_chunks
+
+logger = logging.getLogger(__name__)
 
 
 def _search_company_knowledge(client: AnythingLLMClient, workspace_slug: str, query: str,
@@ -12,7 +16,8 @@ def _search_company_knowledge(client: AnythingLLMClient, workspace_slug: str, qu
     prompt reads naturally either way."""
     try:
         results = client.vector_search(workspace_slug, query, top_n=top_n)
-    except Exception:
+    except Exception as e:
+        logger.warning("Company knowledge search failed for workspace %r: %s", workspace_slug, e)
         results = []
 
     if not results:
@@ -54,17 +59,24 @@ def generation_agent(state: dict) -> dict:
         past_proposals=past_proposals,
     )
 
+    attempt_number = state.get("generation_attempts", 0) + 1
+    logger.info("Generation attempt %d for workspace %r", attempt_number, workspace_slug)
+
     try:
         draft = get_provider().complete(prompt, max_tokens=8192)
     except Exception as e:
         error_msg = f"Generation agent failed: {e}"
+        logger.error(
+            "Generation attempt %d failed for workspace %r: %s",
+            attempt_number, workspace_slug, e, exc_info=True,
+        )
         return {
             "draft_proposal": "",
-            "generation_attempts": state.get("generation_attempts", 0) + 1,
+            "generation_attempts": attempt_number,
             "errors": [error_msg],
         }
 
     return {
         "draft_proposal": draft,
-        "generation_attempts": state.get("generation_attempts", 0) + 1,
+        "generation_attempts": attempt_number,
     }

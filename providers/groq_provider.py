@@ -13,12 +13,15 @@ Env vars:
     GROQ_BASE_URL  optional, default 'https://api.groq.com/openai/v1'
 """
 
+import logging
 import os
 from typing import Optional
 
 import requests
 
 from providers.base import LLMProvider, LLMProviderError
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "llama-3.3-70b-versatile"
 DEFAULT_BASE_URL = "https://api.groq.com/openai/v1"
@@ -57,6 +60,9 @@ class GroqProvider(LLMProvider):
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
 
+        logger.debug(
+            "POST Groq chat/completions model=%r (%d char prompt)", self._model, len(prompt)
+        )
         try:
             resp = requests.post(
                 f"{self._base_url}/chat/completions",
@@ -73,4 +79,5 @@ class GroqProvider(LLMProvider):
             data = resp.json()
             return data["choices"][0]["message"]["content"]
         except Exception as e:
+            logger.warning("Groq completion failed (model=%r): %s", self._model, e)
             raise LLMProviderError(f"Groq completion failed: {e}") from e

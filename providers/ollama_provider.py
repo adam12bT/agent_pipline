@@ -10,12 +10,15 @@ Env vars:
                       (must already be pulled on the server: `ollama pull llama3.1`)
 """
 
+import logging
 import os
 from typing import Optional
 
 import requests
 
 from providers.base import LLMProvider, LLMProviderError
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "llama3.1"
 DEFAULT_BASE_URL = "http://localhost:11434"
@@ -46,6 +49,9 @@ class OllamaProvider(LLMProvider):
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
 
+        logger.debug(
+            "POST Ollama /api/chat model=%r (%d char prompt)", self._model, len(prompt)
+        )
         try:
             resp = requests.post(
                 f"{self._base_url}/api/chat",
@@ -66,9 +72,11 @@ class OllamaProvider(LLMProvider):
             data = resp.json()
             return data.get("message", {}).get("content", "")
         except requests.exceptions.ConnectionError as e:
+            logger.warning("Could not reach Ollama at %s: %s", self._base_url, e)
             raise LLMProviderError(
                 f"Could not reach Ollama at {self._base_url} — is the "
                 f"server running (`ollama serve`)? Original error: {e}"
             ) from e
         except Exception as e:
+            logger.warning("Ollama completion failed (model=%r): %s", self._model, e)
             raise LLMProviderError(f"Ollama completion failed: {e}") from e

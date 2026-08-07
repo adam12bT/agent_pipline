@@ -80,9 +80,13 @@ def _get_scope_from_tender(workspace_slug: str) -> str:
         response_text = get_provider().complete(prompt)
         scope = response_text.strip().strip('"')
         return scope if scope else _FALLBACK_SCOPE
-    except Exception:
+    except Exception as e:
         # Non-fatal — Research can still run, just with the generic
         # fallback query instead of a tender-specific one.
+        logger.warning(
+            "Failed to read tender scope for workspace %r, falling back to generic "
+            "scope: %s", workspace_slug, e,
+        )
         return _FALLBACK_SCOPE
 
 
@@ -101,7 +105,11 @@ def _get_budget_from_tender(workspace_slug: str) -> str:
         response_text = get_provider().complete(prompt)
         budget = response_text.strip().strip('"')
         return budget if budget else _FALLBACK_BUDGET
-    except Exception:
+    except Exception as e:
+        logger.warning(
+            "Failed to read tender budget for workspace %r, falling back to %r: %s",
+            workspace_slug, _FALLBACK_BUDGET, e,
+        )
         return _FALLBACK_BUDGET
 
 
@@ -171,10 +179,12 @@ def research_agent(state: dict) -> dict:
         missing = [name for name in _EXPECTED_ENV_VARS if not os.environ.get(name)]
         hint = f" Missing env var(s): {', '.join(missing)}." if missing else ""
         error_msg = f"Research agent failed: {detail}.{hint}"
+        logger.error(error_msg, exc_info=True)
 
         return {
             "research_summary": f"(No research available — research step failed: {detail}.{hint})",
             "errors": [error_msg],
         }
 
+    logger.info("Research completed for workspace %r (%d chars)", workspace_slug, len(research_summary))
     return {"research_summary": research_summary}

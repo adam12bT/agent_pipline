@@ -22,6 +22,7 @@ Misc:
   GET    /api/health
 """
 
+import logging
 import os
 import sys
 import shutil
@@ -40,6 +41,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 load_dotenv()
 
+from logging_config import configure_logging  # noqa: E402
+
+configure_logging()
+
 from backend.run_store import create_run, get_run, list_runs, PIPELINE_STAGES  # noqa: E402
 from anythingllm_client import AnythingLLMClient  # noqa: E402
 from company_knowledge import (  # noqa: E402
@@ -49,6 +54,8 @@ from company_knowledge import (  # noqa: E402
     REFERENCES_WORKSPACE,
     ensure_company_workspaces,
 )
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="RFP Pipeline API")
 
@@ -107,6 +114,7 @@ async def start_run(file: UploadFile = File(...)):
 
     dest_path, _ = _save_upload(file, "tenders")
     run_id = create_run(tender_file_path=dest_path, original_filename=file.filename)
+    logger.info("Started run %s for tender %r", run_id, file.filename)
     return {"run_id": run_id}
 
 
@@ -153,6 +161,7 @@ def knowledge_status():
         try:
             workspace = client.get_workspace(slug)
         except Exception as e:
+            logger.warning("Failed to fetch knowledge workspace %r: %s", slug, e)
             result[category] = {"slug": slug, "error": str(e), "documents": []}
             continue
 
@@ -196,6 +205,11 @@ async def upload_knowledge_file(category: str, file: UploadFile = File(...)):
     try:
         result = client.upload_document(dest_path, slug)
     except Exception as e:
+        logger.error(
+            "Knowledge upload failed for category=%r file=%r: %s",
+            category, file.filename, e,
+        )
         raise HTTPException(502, f"AnythingLLM upload failed: {e}")
 
+    logger.info("Uploaded %r into knowledge category %r (workspace %r)", file.filename, category, slug)
     return {"ok": True, "filename": file.filename, "workspace": slug, "result": result}

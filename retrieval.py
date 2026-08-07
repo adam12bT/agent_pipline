@@ -9,7 +9,11 @@ this to pull relevant chunks, then hand them to a provider's
 `complete()` as plain-text context.
 """
 
+import logging
+
 from anythingllm_client import AnythingLLMClient
+
+logger = logging.getLogger(__name__)
 
 
 def get_relevant_chunks(
@@ -26,7 +30,8 @@ def get_relevant_chunks(
         results = client.vector_search(
             workspace_slug, query, top_n=top_n, score_threshold=score_threshold
         )
-    except Exception:
+    except Exception as e:
+        logger.warning("Retrieval failed for workspace %r query %r: %s", workspace_slug, query, e)
         results = []
 
     if not results:

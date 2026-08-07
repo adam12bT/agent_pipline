@@ -12,12 +12,15 @@ Set LLM_PROVIDER in .env to switch backends without touching any agent
 code: LLM_PROVIDER=ollama (default, local/free) | groq (cloud, fast).
 """
 
+import logging
 import os
 from typing import Dict, Optional, Type
 
 from providers.base import LLMProvider, LLMProviderError
 from providers.groq_provider import GroqProvider
 from providers.ollama_provider import OllamaProvider
+
+logger = logging.getLogger(__name__)
 
 _REGISTRY: Dict[str, Type[LLMProvider]] = {
     "ollama": OllamaProvider,
@@ -39,6 +42,7 @@ def get_provider(name: Optional[str] = None) -> LLMProvider:
     key = (name or os.environ.get("LLM_PROVIDER", "ollama")).strip().lower()
 
     if key not in _REGISTRY:
+        logger.error("Unknown LLM provider %r requested. Available: %s", key, sorted(_REGISTRY))
         raise LLMProviderError(
             f"Unknown LLM provider '{key}'. Available: {sorted(_REGISTRY)}. "
             f"Set LLM_PROVIDER to one of these, or call register_provider() "
@@ -46,7 +50,12 @@ def get_provider(name: Optional[str] = None) -> LLMProvider:
         )
 
     if key not in _cache:
-        _cache[key] = _REGISTRY[key]()
+        logger.info("Initializing LLM provider %r", key)
+        try:
+            _cache[key] = _REGISTRY[key]()
+        except LLMProviderError as e:
+            logger.error("Failed to initialize LLM provider %r: %s", key, e)
+            raise
 
     return _cache[key]
 

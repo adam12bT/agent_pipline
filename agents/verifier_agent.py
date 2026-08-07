@@ -18,10 +18,13 @@ the two (Extraction, Research) that now run in parallel and can't safely
 spread the full state back.
 """
 
+import logging
 import os
 import uuid
 
 from anythingllm_client import AnythingLLMClient
+
+logger = logging.getLogger(__name__)
 
 SUPPORTED_EXTENSIONS = {".pdf", ".docx"}
 MIN_FILE_SIZE_BYTES = 1024  # 1KB — catches empty/corrupt uploads
@@ -43,6 +46,7 @@ def verifier_agent(state: dict) -> dict:
             errors.append("File is suspiciously small / possibly empty or corrupt.")
 
     if errors:
+        logger.warning("Verification failed for %r: %s", file_path, errors)
         return {
             "is_verified": False,
             "verification_errors": errors,
@@ -61,6 +65,7 @@ def verifier_agent(state: dict) -> dict:
         client.upload_document(file_path, workspace_slug)
     except Exception as e:
         error_msg = f"Failed to set up workspace / embed document: {e}"
+        logger.error("Workspace setup failed for %r: %s", file_path, e, exc_info=True)
         return {
             "is_verified": False,
             "verification_errors": [error_msg],
@@ -68,6 +73,7 @@ def verifier_agent(state: dict) -> dict:
             "errors": [error_msg],
         }
 
+    logger.info("Verified %r and embedded it into workspace %r", file_path, workspace_slug)
     return {
         "is_verified": True,
         "verification_errors": [],

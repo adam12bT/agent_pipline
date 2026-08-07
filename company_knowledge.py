@@ -19,7 +19,11 @@ hyphens, no spaces) — see the big comment in
 AnythingLLMClient.get_or_create_workspace() for why that matters.
 """
 
+import logging
+
 from anythingllm_client import AnythingLLMClient
+
+logger = logging.getLogger(__name__)
 
 PROPOSALS_WORKSPACE = "company-past-proposals"
 CVS_WORKSPACE = "company-cvs"
@@ -40,4 +44,8 @@ def ensure_company_workspaces(client: AnythingLLMClient | None = None) -> dict:
     for slug in ALL_COMPANY_WORKSPACES:
         outcome = client.get_or_create_workspace(slug)
         result[slug] = {"created": outcome["created"]}
+        if outcome["created"]:
+            logger.info("Created company knowledge workspace %r (was empty)", slug)
+        else:
+            logger.debug("Company knowledge workspace %r already exists", slug)
     return result

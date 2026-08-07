@@ -16,12 +16,15 @@ extraction.
 """
 
 import json
+import logging
 import re
 
 from anythingllm_client import AnythingLLMClient
 from .prompts import EXTRACTION_PROMPT
 from providers import get_provider
 from retrieval import get_relevant_chunks
+
+logger = logging.getLogger(__name__)
 
 _RETRIEVAL_QUERY = (
     "scope of work, deliverables, submission deadline, project duration, "
@@ -109,8 +112,15 @@ def _extract_json(text: str) -> dict:
             "auto-repaired by closing the open brackets. Spot-check the "
             "last field before trusting it fully."
         )
+        logger.warning("Extraction response was truncated; auto-repaired JSON.")
         return parsed
     except json.JSONDecodeError:
+        logger.error(
+            "Failed to parse extraction response as JSON even after repair "
+            "attempt (%d chars of raw response follow at debug level).",
+            len(text),
+        )
+        logger.debug("Unparseable extraction response: %s", text)
         return {"raw_response": text, "parse_error": True}
 
 
@@ -134,9 +144,13 @@ def extraction_agent(state: dict) -> dict:
         requirements = _extract_json(response_text)
     except Exception as e:
         error_msg = f"Extraction agent failed: {e}"
+        logger.error("Extraction failed for workspace %r: %s", workspace_slug, e, exc_info=True)
         return {
             "requirements": {},
             "errors": [error_msg],
         }
+
+    if requirements.get("parse_error"):
+        logger.warning("Extraction produced unparseable requirements for workspace %r", workspace_slug)
 
     return {"requirements": requirements}
