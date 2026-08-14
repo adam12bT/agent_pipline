@@ -13,4 +13,4 @@ uvicorn[standard]
 python-multipart
 
 # --- quality & security agent ---
-llm-guard
+llm-guard==0.3.16

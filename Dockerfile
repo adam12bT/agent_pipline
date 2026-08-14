@@ -18,7 +18,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt \
-    && python -c "import llm_guard; from llm_guard.output_scanners import MaliciousURLs, NoRefusal, Sensitive, ToxicLanguage; print('LLM Guard import check passed')"
+    && python -c "import llm_guard; from llm_guard.output_scanners import MaliciousURLs, NoRefusal, Sensitive, Toxicity; print('LLM Guard import check passed')"
 
 # Now copy the rest of the pipeline source.
 COPY . .

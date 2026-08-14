@@ -13,7 +13,7 @@ GRADED — it triggers a regeneration attempt (up to MAX_GENERATION_ATTEMPTS)
 via the "retry_generation" status rather than a hard stop.
 
 Uses LLM Guard's:
-  - `ToxicLanguage` -> tone/appropriateness scoring
+  - `Toxicity`      -> tone/appropriateness scoring
   - `NoRefusal`      -> catches the generation model refusing / punting
                         instead of writing the section (a common failure
                         mode for generation agents)
@@ -61,7 +61,7 @@ LLM_GUARD_FAIL_CLOSED = os.environ.get(
 ).strip().lower() not in {"0", "false", "no", "off"}
 
 try:
-    from llm_guard.output_scanners import NoRefusal, ToxicLanguage
+    from llm_guard.output_scanners import NoRefusal, Toxicity
 
     _LLM_GUARD_AVAILABLE = True
 except ImportError:  # pragma: no cover - exercised only when dep is missing
@@ -82,7 +82,7 @@ def _get_scanners():
     global _scanners_cache
     if _scanners_cache is None:
         _scanners_cache = {
-            "toxicity": ToxicLanguage(threshold=0.7),
+            "toxicity": Toxicity(threshold=0.7),
             "no_refusal": NoRefusal(threshold=0.5),
         }
     return _scanners_cache
