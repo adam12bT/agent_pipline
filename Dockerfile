@@ -17,7 +17,9 @@ WORKDIR /app
 # source files change (this is most of your rebuild time savings).
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.6.0 \
     && pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir --no-deps llm-guard==0.3.16 \
     && python -c "import llm_guard; from llm_guard.output_scanners import MaliciousURLs, NoRefusal, Sensitive, Toxicity; print('LLM Guard import check passed')"
 
 # Now copy the rest of the pipeline source.
