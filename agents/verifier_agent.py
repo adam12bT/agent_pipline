@@ -23,6 +23,7 @@ import os
 import uuid
 
 from anythingllm_client import AnythingLLMClient
+from extractor_client import ExtractorClient, summarize_extractor_response
 
 logger = logging.getLogger(__name__)
 
@@ -54,17 +55,20 @@ def verifier_agent(state: dict) -> dict:
             "errors": errors,
         }
 
-    # File looks good — create a workspace for this run and embed the doc.
+    # Create an isolated AnythingLLM workspace, then delegate parsing, OCR,
+    # table recovery, metadata preservation and indexing to the extractor.
     client = AnythingLLMClient()
+    extractor = ExtractorClient()
     workspace_name = f"rfp-{uuid.uuid4().hex[:8]}"
 
     try:
         ws_resp = client.create_workspace(workspace_name)
         workspace_slug = ws_resp["workspace"]["slug"]
 
-        client.upload_document(file_path, workspace_slug)
+        extraction_response = extractor.process_and_index(file_path, workspace_slug)
+        document_processing = summarize_extractor_response(extraction_response)
     except Exception as e:
-        error_msg = f"Failed to set up workspace / embed document: {e}"
+        error_msg = f"Failed to set up workspace / process document: {e}"
         logger.error("Workspace setup failed for %r: %s", file_path, e, exc_info=True)
         return {
             "is_verified": False,
@@ -73,10 +77,15 @@ def verifier_agent(state: dict) -> dict:
             "errors": [error_msg],
         }
 
-    logger.info("Verified %r and embedded it into workspace %r", file_path, workspace_slug)
+    logger.info(
+        "Verified %r; extractor indexed it into workspace %r",
+        file_path,
+        workspace_slug,
+    )
     return {
         "is_verified": True,
         "verification_errors": [],
         "workspace_slug": workspace_slug,
+        "document_processing": document_processing,
         "status": "running",
     }

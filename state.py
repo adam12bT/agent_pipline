@@ -33,6 +33,7 @@ class RFPState(TypedDict, total=False):
     # --- input ---
     tender_file_path: str          # path to the RFP/cahier des charges (PDF/DOCX)
     workspace_slug: str            # AnythingLLM workspace this run uses
+    document_processing: dict      # compact OCR/table/metadata/indexing summary
 
     # --- Verifier agent output ---
     is_verified: bool

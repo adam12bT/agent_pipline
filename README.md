@@ -15,12 +15,51 @@ Deployed automatically from the `main` branch via GitHub Actions.
 
 Backend: FastAPI (`backend/api.py`). See `/api/health` for a liveness check.
 
+## Phase 2: RAG ingestion and validation
+
+The standalone extractor is responsible for PDF/DOCX parsing, bilingual OCR,
+table recovery and layout metadata. It sends structured content to AnythingLLM,
+which owns workspaces, token chunking, embeddings and Qdrant retrieval. This
+repository orchestrates those services and adds a lightweight retrieval reranker.
+
+1. In AnythingLLM, select **Qdrant** as the vector database and configure its
+   URL/API key. Set document chunk size to about 512 tokens and overlap to
+   about 50 tokens when those collector settings are available. Restart
+   AnythingLLM after changing the vector database or embedding model.
+2. Put real company files under `company_corpus/past_proposals`,
+   `company_corpus/cvs`, and `company_corpus/project_references`.
+3. Run `python ingest_company_corpus.py`. Re-running skips identical content
+   using `company_corpus/.ingestion_manifest.json`. Use `--force` only for an
+   intentional re-index.
+4. Validate real documents with exact, distinctive phrases:
+
+```powershell
+python phase2_smoke_test.py `
+  --native-pdf samples/native.pdf --native-pdf-phrase "EXACT UNIQUE PDF TEXT" `
+  --docx samples/sample.docx --docx-phrase "EXACT UNIQUE DOCX TEXT" `
+  --scanned-pdf samples/scan.pdf --scanned-pdf-phrase "EXACT TEXT VISIBLE IN SCAN" `
+  --table-pdf samples/table.pdf --table-pdf-phrase "DISTINCTIVE TABLE CELL VALUE"
+```
+
+A scanned-PDF pass proves that OCR text is searchable for that real sample.
+If it fails, first check that OCR is enabled in the deployed AnythingLLM build.
+Only add a separate OCR engine such as Surya if representative scans still fail.
+The table case similarly checks that critical numbers/cell values survive the
+document parser before the agent pipeline depends on them.
+
+The smoke command reports whether source metadata came back with retrieved
+chunks. Qdrant itself is configured and verified in AnythingLLM; this client
+cannot identify the vector backend from the generic vector-search response.
+
 ## Required Space secrets
 
 Set these under this Space's **Settings → Repository secrets**:
 
 - `ANYTHINGLLM_BASE_URL` — URL of your deployed AnythingLLM Space's API
   (e.g. `https://your-username-anythingllm.hf.space/api`), NOT localhost.
+- `EXTRACTOR_BASE_URL` — URL of the deployed extraction Space, without an
+  `/api` suffix (e.g. `https://your-username-extractor.hf.space`).
+- `EXTRACTOR_API_KEY` — optional Bearer token if extractor authentication is enabled.
 - `TAVILY_API_KEY` — search retriever key used by GPT Researcher.
 - Whichever LLM provider key GPT Researcher is configured to use
   (e.g. `OPENAI_API_KEY`), if not already covered above.

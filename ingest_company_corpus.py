@@ -1,25 +1,22 @@
-"""
-Bulk-ingests your company's document corpus into the 3 persistent
-knowledge workspaces (see company_knowledge.py).
+"""Bulk-index the company's reusable PDF/DOCX corpus in AnythingLLM.
 
-WHEN YOU HAVE REAL FILES: drop them into this folder structure next to
-this script:
+Expected folder structure::
 
     company_corpus/
-    ├── past_proposals/     (PDF/DOCX of previously submitted proposals)
-    ├── cvs/                 (PDF/DOCX of consultant CVs)
-    └── project_references/ (PDF/DOCX describing completed past projects)
+    |-- past_proposals/
+    |-- cvs/
+    `-- project_references/
 
-Then run:
-    python ingest_company_corpus.py
-
-Each file gets uploaded and embedded into its matching workspace. Safe
-to re-run — AnythingLLM will just re-embed anything already there
-(it does not currently skip duplicates, so avoid re-running on files
-already ingested unless you don't mind duplicate chunks in the index).
+Run ``python ingest_company_corpus.py``. A SHA-256 manifest makes normal
+re-runs idempotent, preventing duplicate vectors. Use ``--force`` only when a
+file must intentionally be re-indexed.
 """
 
+import argparse
+import hashlib
+import json
 import os
+from datetime import datetime, timezone
 
 from anythingllm_client import AnythingLLMClient
 from company_knowledge import (
@@ -30,6 +27,7 @@ from company_knowledge import (
 )
 
 CORPUS_ROOT = os.path.join(os.path.dirname(__file__), "company_corpus")
+MANIFEST_PATH = os.path.join(CORPUS_ROOT, ".ingestion_manifest.json")
 
 FOLDER_TO_WORKSPACE = {
     "past_proposals": PROPOSALS_WORKSPACE,
@@ -49,40 +47,99 @@ def _iter_supported_files(folder: str):
             yield path
 
 
-def ingest_all():
+def _sha256(file_path: str) -> str:
+    digest = hashlib.sha256()
+    with open(file_path, "rb") as file_obj:
+        for block in iter(lambda: file_obj.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _load_manifest() -> dict:
+    try:
+        with open(MANIFEST_PATH, "r", encoding="utf-8") as file_obj:
+            data = json.load(file_obj)
+        return data if isinstance(data, dict) else {"version": 1, "documents": {}}
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {"version": 1, "documents": {}}
+
+
+def _save_manifest(manifest: dict) -> None:
+    os.makedirs(CORPUS_ROOT, exist_ok=True)
+    temporary_path = f"{MANIFEST_PATH}.tmp"
+    with open(temporary_path, "w", encoding="utf-8") as file_obj:
+        json.dump(manifest, file_obj, ensure_ascii=False, indent=2, sort_keys=True)
+    os.replace(temporary_path, MANIFEST_PATH)
+
+
+def ingest_all(force: bool = False) -> dict:
     client = AnythingLLMClient()
+    manifest = _load_manifest()
+    indexed_documents = manifest.setdefault("documents", {})
+    report = {"uploaded": [], "skipped": [], "failed": []}
 
     print("Ensuring the 3 company knowledge workspaces exist...")
     status = ensure_company_workspaces(client)
     for slug, info in status.items():
         print(f"  {slug}: {'created' if info['created'] else 'already existed'}")
 
-    total_uploaded = 0
     for folder_name, workspace_slug in FOLDER_TO_WORKSPACE.items():
         folder_path = os.path.join(CORPUS_ROOT, folder_name)
         files = list(_iter_supported_files(folder_path))
 
         if not files:
-            print(f"\n[{folder_name}] No PDF/DOCX files found in {folder_path} — skipping. "
-                  f"(Create this folder and add files, then re-run.)")
+            print(
+                f"\n[{folder_name}] No PDF/DOCX files found in {folder_path} - skipping."
+            )
             continue
 
-        print(f"\n[{folder_name}] Uploading {len(files)} file(s) into workspace '{workspace_slug}'...")
-        for file_path in files:
-            try:
-                client.upload_document(file_path, workspace_slug)
-                print(f"  OK: {os.path.basename(file_path)}")
-                total_uploaded += 1
-            except Exception as e:
-                print(f"  FAILED: {os.path.basename(file_path)} — {e}")
-
-    print(f"\nDone. {total_uploaded} file(s) uploaded across all categories.")
-    if total_uploaded == 0:
         print(
-            "\nNo files were found anywhere. Create the folder structure described "
-            "at the top of this script and add your real PDFs/DOCX, then re-run."
+            f"\n[{folder_name}] Checking {len(files)} file(s) for workspace "
+            f"'{workspace_slug}'..."
         )
+        for file_path in files:
+            relative_path = os.path.relpath(file_path, CORPUS_ROOT).replace("\\", "/")
+            content_hash = _sha256(file_path)
+            manifest_key = f"{workspace_slug}:{content_hash}"
+
+            if not force and manifest_key in indexed_documents:
+                print(f"  SKIPPED (already indexed): {os.path.basename(file_path)}")
+                report["skipped"].append(relative_path)
+                continue
+
+            try:
+                upload_result = client.upload_document(file_path, workspace_slug)
+                print(f"  OK: {os.path.basename(file_path)}")
+                report["uploaded"].append(relative_path)
+                indexed_documents[manifest_key] = {
+                    "path": relative_path,
+                    "workspace": workspace_slug,
+                    "sha256": content_hash,
+                    "size_bytes": os.path.getsize(file_path),
+                    "indexed_at": datetime.now(timezone.utc).isoformat(),
+                    "anythingllm_documents": upload_result.get("documents", []),
+                }
+                _save_manifest(manifest)
+            except Exception as exc:
+                print(f"  FAILED: {os.path.basename(file_path)} - {exc}")
+                report["failed"].append({"path": relative_path, "error": str(exc)})
+
+    print(
+        f"\nDone. {len(report['uploaded'])} uploaded, "
+        f"{len(report['skipped'])} skipped, {len(report['failed'])} failed."
+    )
+    if not any(report.values()):
+        print("Create the company_corpus folders and add real PDF/DOCX files, then re-run.")
+    return report
 
 
 if __name__ == "__main__":
-    ingest_all()
+    parser = argparse.ArgumentParser(description="Index the company corpus in AnythingLLM.")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Upload files even when the same content hash was already indexed.",
+    )
+    arguments = parser.parse_args()
+    result = ingest_all(force=arguments.force)
+    raise SystemExit(1 if result["failed"] else 0)
