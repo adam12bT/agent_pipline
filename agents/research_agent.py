@@ -38,8 +38,6 @@ import asyncio
 import logging
 import os
 
-from gpt_researcher import GPTResearcher
-
 from anythingllm_client import AnythingLLMClient
 from .prompts import (
     RESEARCH_SCOPE_PROMPT as _SCOPE_PROMPT,
@@ -126,6 +124,12 @@ def _build_query(scope: str, budget: str = _FALLBACK_BUDGET, selection_method: s
 
 
 async def _run_research(query: str) -> str:
+    # Import lazily so an optional GPT Researcher packaging/import problem
+    # cannot prevent the FastAPI application from starting. Any failure here
+    # is caught by research_agent(), reported in the run output, and the rest
+    # of the proposal pipeline can continue without external research.
+    from gpt_researcher import GPTResearcher
+
     researcher = GPTResearcher(query=query, report_type="research_report")
 
     # Setting these directly on `.cfg` after construction rather than via
