@@ -12,8 +12,8 @@ separate conditional edges in graph.py: `security` routes to END
 (human alert) on failure with no retry, `quality` routes back to
 `generation` on failure.
 
-Uses LLM Guard's OUTPUT scanners (scanning the generated draft itself):
-  - `Sensitive`      -> PII leaking into the draft (e.g. a stray email or
+Uses bilingual Presidio PII detection plus LLM Guard's OUTPUT scanner:
+  - Presidio (en/fr) -> PII leaking into the draft (e.g. a stray email or
                         phone number pulled in from a CV excerpt).
   - `MaliciousURLs`   -> suspicious links in the draft. This also doubles
                         as the agent's best available signal for INDIRECT
@@ -51,7 +51,9 @@ import re
 logger = logging.getLogger(__name__)
 
 try:
-    from llm_guard.output_scanners import MaliciousURLs, Sensitive
+    from llm_guard.output_scanners import MaliciousURLs
+    from presidio_analyzer import AnalyzerEngine
+    from presidio_analyzer.nlp_engine import NlpEngineProvider
 
     _LLM_GUARD_AVAILABLE = True
 except ImportError:  # pragma: no cover - exercised only when dep is missing
@@ -84,10 +86,49 @@ def _get_scanners():
     global _scanners_cache
     if _scanners_cache is None:
         _scanners_cache = {
-            "pii": Sensitive(entity_types=None, redact=False),
+            "pii": _PresidioSensitiveScanner(),
             "malicious_urls": MaliciousURLs(threshold=0.5),
         }
     return _scanners_cache
+
+
+class _PresidioSensitiveScanner:
+    """Expose LLM Guard's scan contract using only the required en/fr models.
+
+    LLM Guard 0.3.16's Sensitive scanner initializes an internal language
+    list that includes Chinese. Explicit Presidio configuration avoids that
+    runtime download and keeps PII analysis bilingual.
+    """
+
+    def __init__(self, threshold: float = 0.5):
+        configuration = {
+            "nlp_engine_name": "spacy",
+            "models": [
+                {"lang_code": "en", "model_name": "en_core_web_sm"},
+                {"lang_code": "fr", "model_name": "fr_core_news_sm"},
+            ],
+        }
+        provider = NlpEngineProvider(nlp_configuration=configuration)
+        nlp_engine = provider.create_engine()
+        self._analyzer = AnalyzerEngine(
+            nlp_engine=nlp_engine,
+            supported_languages=["en", "fr"],
+        )
+        self._threshold = threshold
+
+    def scan(self, prompt: str, output: str):
+        del prompt
+        findings = []
+        for language in ("en", "fr"):
+            findings.extend(
+                self._analyzer.analyze(
+                    text=output,
+                    language=language,
+                    score_threshold=self._threshold,
+                )
+            )
+        risk_score = max((item.score for item in findings), default=0.0)
+        return output, not findings, risk_score
 
 
 def _check_naive_pii(draft: str) -> dict:
@@ -105,8 +146,16 @@ def _run_llm_guard(draft: str) -> dict:
     skipped rather than failing the whole security stage — one bad
     scanner shouldn't block every run. Flip this to fail-closed (treat a
     scanner error as a finding) if you'd rather be stricter here."""
-    scanners = _get_scanners()
     findings = {}
+
+    try:
+        scanners = _get_scanners()
+    except Exception as exc:
+        logger.exception("Security scanners failed to initialize")
+        findings.update(_check_naive_pii(draft))
+        if LLM_GUARD_FAIL_CLOSED:
+            findings["scanner_initialization_error"] = str(exc)[:300]
+        return findings
 
     for name, scanner in scanners.items():
         try:

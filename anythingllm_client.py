@@ -13,16 +13,50 @@ the server later, add the Bearer header back in _headers().
 
 import logging
 import os
+import random
+import threading
+import time
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+
 import requests
 
 logger = logging.getLogger(__name__)
 
 ANYTHINGLLM_BASE_URL = os.environ.get("ANYTHINGLLM_BASE_URL", "http://localhost:3001/api")
 
+# Prevent concurrent pipeline nodes from overwhelming a hosted AnythingLLM.
+_VECTOR_REQUEST_GATE = threading.Lock()
+_VECTOR_NEXT_REQUEST_AT = 0.0
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return max(0, int(os.environ.get(name, str(default))))
+    except (TypeError, ValueError):
+        logger.warning("Invalid %s; using %d", name, default)
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return max(0.0, float(os.environ.get(name, str(default))))
+    except (TypeError, ValueError):
+        logger.warning("Invalid %s; using %.2f", name, default)
+        return default
+
 
 class AnythingLLMClient:
     def __init__(self, base_url: str = ANYTHINGLLM_BASE_URL):
         self.base_url = base_url.rstrip("/")
+        self.timeout_seconds = _env_float("ANYTHINGLLM_TIMEOUT_SECONDS", 30.0)
+        self.max_retries = _env_int("ANYTHINGLLM_MAX_RETRIES", 5)
+        self.retry_base_seconds = _env_float("ANYTHINGLLM_RETRY_BASE_SECONDS", 2.0)
+        self.retry_max_seconds = _env_float("ANYTHINGLLM_RETRY_MAX_SECONDS", 60.0)
+        self.retry_jitter_seconds = _env_float("ANYTHINGLLM_RETRY_JITTER_SECONDS", 1.0)
+        self.vector_min_interval_seconds = _env_float(
+            "ANYTHINGLLM_VECTOR_MIN_INTERVAL_SECONDS", 1.0
+        )
 
     def _headers(self):
         # Auth disabled on the server fork — nothing to add here for now.
@@ -127,14 +161,74 @@ class AnythingLLMClient:
         Use this when you just need raw relevant passages (e.g. Extraction agent).
         """
         logger.debug("POST vector-search workspace=%r query=%r", workspace_slug, query)
-        resp = requests.post(
-            f"{self.base_url}/v1/workspace/{workspace_slug}/vector-search",
-            json={"query": query, "topN": top_n, "scoreThreshold": score_threshold},
-            headers=self._headers(),
-            timeout=30,
-        )
-        self._raise_for_status(resp, f"vector_search({workspace_slug!r})")
-        return resp.json().get("results", [])
+        url = f"{self.base_url}/v1/workspace/{workspace_slug}/vector-search"
+        payload = {"query": query, "topN": top_n, "scoreThreshold": score_threshold}
+        retryable_statuses = {408, 429, 500, 502, 503, 504}
+
+        global _VECTOR_NEXT_REQUEST_AT
+        with _VECTOR_REQUEST_GATE:
+            for attempt in range(self.max_retries + 1):
+                wait_for_slot = _VECTOR_NEXT_REQUEST_AT - time.monotonic()
+                if wait_for_slot > 0:
+                    time.sleep(wait_for_slot)
+
+                try:
+                    resp = requests.post(
+                        url,
+                        json=payload,
+                        headers=self._headers(),
+                        timeout=self.timeout_seconds,
+                    )
+                except (requests.Timeout, requests.ConnectionError) as exc:
+                    if attempt >= self.max_retries:
+                        raise
+                    delay = self._retry_delay(attempt, None)
+                    _VECTOR_NEXT_REQUEST_AT = time.monotonic() + delay
+                    logger.warning(
+                        "AnythingLLM vector search transport error for %r (%s); "
+                        "retrying in %.2fs (%d/%d)",
+                        workspace_slug, type(exc).__name__, delay,
+                        attempt + 1, self.max_retries,
+                    )
+                    continue
+
+                if resp.status_code not in retryable_statuses:
+                    _VECTOR_NEXT_REQUEST_AT = time.monotonic() + self.vector_min_interval_seconds
+                    self._raise_for_status(resp, f"vector_search({workspace_slug!r})")
+                    return resp.json().get("results", [])
+
+                if attempt >= self.max_retries:
+                    self._raise_for_status(resp, f"vector_search({workspace_slug!r})")
+
+                delay = self._retry_delay(attempt, resp.headers.get("Retry-After"))
+                _VECTOR_NEXT_REQUEST_AT = time.monotonic() + delay
+                logger.warning(
+                    "AnythingLLM vector search for %r returned HTTP %d; "
+                    "retrying in %.2fs (%d/%d)",
+                    workspace_slug, resp.status_code, delay,
+                    attempt + 1, self.max_retries,
+                )
+
+        raise RuntimeError("AnythingLLM vector-search retry loop exited unexpectedly")
+
+    def _retry_delay(self, attempt: int, retry_after: str | None) -> float:
+        """Honor Retry-After, otherwise use capped exponential backoff and jitter."""
+        if retry_after:
+            try:
+                return min(self.retry_max_seconds, max(0.0, float(retry_after)))
+            except ValueError:
+                try:
+                    retry_at = parsedate_to_datetime(retry_after)
+                    if retry_at.tzinfo is None:
+                        retry_at = retry_at.replace(tzinfo=timezone.utc)
+                    seconds = (retry_at - datetime.now(timezone.utc)).total_seconds()
+                    return min(self.retry_max_seconds, max(0.0, seconds))
+                except (TypeError, ValueError, OverflowError):
+                    logger.debug("Ignoring invalid Retry-After value %r", retry_after)
+
+        exponential = self.retry_base_seconds * (2 ** attempt)
+        jitter = random.uniform(0.0, self.retry_jitter_seconds)
+        return min(self.retry_max_seconds, exponential + jitter)
 
     def chat(self, workspace_slug: str, message: str, mode: str = "query",
               session_id: str = "rfp-pipeline") -> str:
