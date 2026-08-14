@@ -45,6 +45,7 @@ fail in an environment where the models aren't available yet.
 """
 
 import logging
+import os
 import re
 
 logger = logging.getLogger(__name__)
@@ -68,6 +69,13 @@ _NAIVE_PII_PATTERNS = {
 }
 
 _scanners_cache = None
+LLM_GUARD_FAIL_CLOSED = os.environ.get(
+    "LLM_GUARD_FAIL_CLOSED", "true"
+).strip().lower() not in {"0", "false", "no", "off"}
+
+
+def llm_guard_available() -> bool:
+    return _LLM_GUARD_AVAILABLE
 
 
 def _get_scanners():
@@ -104,7 +112,9 @@ def _run_llm_guard(draft: str) -> dict:
         try:
             _, is_valid, risk_score = scanner.scan(prompt="", output=draft)
         except Exception as exc:
-            logger.warning("LLM Guard scanner %r failed, skipping: %s", name, exc)
+            logger.exception("LLM Guard scanner %r failed", name)
+            if LLM_GUARD_FAIL_CLOSED:
+                findings[f"{name}_scanner_error"] = str(exc)[:300]
             continue
 
         if not is_valid:

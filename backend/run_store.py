@@ -37,11 +37,19 @@ RUNS: dict[str, dict] = {}
 _LOCK = threading.Lock()
 
 
-def _new_run_record(run_id: str, tender_file_path: str, original_filename: str) -> dict:
+def _new_run_record(
+    run_id: str,
+    tender_file_path: str,
+    original_filename: str,
+    response_template_file_path: str,
+    response_template_filename: str,
+) -> dict:
     return {
         "run_id": run_id,
         "tender_filename": original_filename,
         "tender_file_path": tender_file_path,
+        "response_template_filename": response_template_filename,
+        "response_template_file_path": response_template_file_path,
         "created_at": time.time(),
         "updated_at": time.time(),
         # "queued" | "running" | "blocked" | "security_blocked" | "done" | "failed"
@@ -50,6 +58,7 @@ def _new_run_record(run_id: str, tender_file_path: str, original_filename: str) 
         "completed_stages": [],
         "state": {
             "tender_file_path": tender_file_path,
+            "response_template_file_path": response_template_file_path,
             "status": "running",
             "generation_attempts": 0,
             "errors": [],
@@ -58,9 +67,20 @@ def _new_run_record(run_id: str, tender_file_path: str, original_filename: str) 
     }
 
 
-def create_run(tender_file_path: str, original_filename: str) -> str:
+def create_run(
+    tender_file_path: str,
+    original_filename: str,
+    response_template_file_path: str,
+    response_template_filename: str,
+) -> str:
     run_id = uuid.uuid4().hex[:12]
-    record = _new_run_record(run_id, tender_file_path, original_filename)
+    record = _new_run_record(
+        run_id,
+        tender_file_path,
+        original_filename,
+        response_template_file_path,
+        response_template_filename,
+    )
     with _LOCK:
         RUNS[run_id] = record
     thread = threading.Thread(target=_execute_run, args=(run_id,), daemon=True)
@@ -83,6 +103,7 @@ def list_runs() -> list[dict]:
         {
             "run_id": r["run_id"],
             "tender_filename": r["tender_filename"],
+            "response_template_filename": r["response_template_filename"],
             "created_at": r["created_at"],
             "updated_at": r["updated_at"],
             "run_status": r["run_status"],

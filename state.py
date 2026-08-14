@@ -32,21 +32,25 @@ from typing import Annotated, TypedDict
 class RFPState(TypedDict, total=False):
     # --- input ---
     tender_file_path: str          # path to the RFP/cahier des charges (PDF/DOCX)
+    response_template_file_path: str  # client response template (PDF/DOCX)
     workspace_slug: str            # AnythingLLM workspace this run uses
+    response_template_workspace_slug: str  # isolated workspace for template retrieval
     document_processing: dict      # compact OCR/table/metadata/indexing summary
+    response_template_processing: dict  # compact template extraction/indexing summary
 
     # --- Verifier agent output ---
     is_verified: bool
     verification_errors: list[str]
 
     # --- Extraction agent output (parallel branch) ---
-    requirements: dict             # {deliverables, deadlines, budget, evaluation_criteria, scope_summary}
+    requirements: dict             # tender constraints + extracted response-template rules
 
     # --- Research agent output (parallel branch) ---
     research_summary: str          # market/competitor research findings
 
     # --- Generation agent output ---
     draft_proposal: str            # the generated technical proposal (markdown)
+    generation_evidence: dict      # exact RAG/research context supplied to generation
     generation_attempts: int       # retry counter, capped by the graph
 
     # --- Security agent output (BLOCKING: PII, secrets, malicious/injected content) ---

@@ -37,6 +37,7 @@ def generation_agent(state: dict) -> dict:
 
     client = AnythingLLMClient()
     workspace_slug = state["workspace_slug"]
+    template_workspace_slug = state["response_template_workspace_slug"]
     requirements = state.get("requirements", {})
     search_query = requirements.get("scope_summary") or "technical proposal requirements"
 
@@ -49,9 +50,30 @@ def generation_agent(state: dict) -> dict:
     )
 
     tender_excerpts = get_relevant_chunks(client, workspace_slug, search_query, top_n=6)
+    response_template_excerpts = get_relevant_chunks(
+        client,
+        template_workspace_slug,
+        "required response structure, headings, section instructions, tables and formatting",
+        top_n=10,
+    )
+    response_template_rules = requirements.get("response_template", {})
+    revision_feedback = state.get("quality_report") or "(first generation attempt)"
+
+    generation_evidence = {
+        "tender_excerpts": tender_excerpts,
+        "response_template_excerpts": response_template_excerpts,
+        "requirements": requirements,
+        "research_summary": state.get("research_summary", "(no research available)"),
+        "project_references": project_references,
+        "cv_excerpts": cv_excerpts,
+        "past_proposals": past_proposals,
+    }
 
     prompt = GENERATION_PROMPT_TEMPLATE.format(
         tender_excerpts=tender_excerpts,
+        response_template_excerpts=response_template_excerpts,
+        response_template_rules=response_template_rules,
+        revision_feedback=revision_feedback,
         requirements=requirements,
         research_summary=state.get("research_summary", "(no research available)"),
         project_references=project_references,
@@ -72,11 +94,13 @@ def generation_agent(state: dict) -> dict:
         )
         return {
             "draft_proposal": "",
+            "generation_evidence": generation_evidence,
             "generation_attempts": attempt_number,
             "errors": [error_msg],
         }
 
     return {
         "draft_proposal": draft,
+        "generation_evidence": generation_evidence,
         "generation_attempts": attempt_number,
     }

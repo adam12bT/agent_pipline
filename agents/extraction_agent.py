@@ -27,8 +27,10 @@ from retrieval import get_relevant_chunks
 logger = logging.getLogger(__name__)
 
 _RETRIEVAL_QUERY = (
-    "scope of work, deliverables, submission deadline, project duration, "
-    "budget, evaluation criteria, selection method"
+    "scope of work, deliverables, mandatory technical requirements, integrations, "
+    "security and performance constraints, contractual obligations, eligibility, "
+    "SLA, submission deadline, project duration, budget, evaluation criteria, "
+    "selection method"
 )
 
 
@@ -136,10 +138,22 @@ def extraction_agent(state: dict) -> dict:
 
     client = AnythingLLMClient()
     workspace_slug = state["workspace_slug"]
+    template_workspace_slug = state["response_template_workspace_slug"]
 
     try:
         context = get_relevant_chunks(client, workspace_slug, _RETRIEVAL_QUERY, top_n=8)
-        prompt = f"TENDER DOCUMENT EXCERPTS:\n\n{context}\n\n{EXTRACTION_PROMPT}"
+        template_context = get_relevant_chunks(
+            client,
+            template_workspace_slug,
+            "required response sections, section order, instructions, formatting, "
+            "page limits, annexes and mandatory tables",
+            top_n=10,
+        )
+        prompt = (
+            f"TENDER DOCUMENT EXCERPTS:\n\n{context}\n\n"
+            f"RESPONSE TEMPLATE EXCERPTS:\n\n{template_context}\n\n"
+            f"{EXTRACTION_PROMPT}"
+        )
         response_text = get_provider().complete(prompt)
         requirements = _extract_json(response_text)
     except Exception as e:

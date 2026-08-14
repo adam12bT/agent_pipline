@@ -2,7 +2,7 @@
 Example entry point.
 
 Usage:
-    python main.py /path/to/tender.pdf
+    python main.py /path/to/tender.pdf /path/to/response-template.docx
 
 Requires:
   - The AnythingLLM server (anything-llm-lightweight/server) running,
@@ -25,7 +25,7 @@ from agents.graph import build_graph  # noqa: E402  (import after load_dotenv on
 from company_knowledge import ensure_company_workspaces  # noqa: E402
 
 
-def run(tender_file_path: str):
+def run(tender_file_path: str, response_template_file_path: str):
     print("Ensuring company knowledge base workspaces exist...")
     status = ensure_company_workspaces()
     for slug, info in status.items():
@@ -34,6 +34,7 @@ def run(tender_file_path: str):
     pipeline = build_graph()
     initial_state = {
         "tender_file_path": tender_file_path,
+        "response_template_file_path": response_template_file_path,
         "status": "running",
         "generation_attempts": 0,
         "errors": [],
@@ -62,8 +63,8 @@ def run(tender_file_path: str):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: python main.py /path/to/tender.pdf")
+    if len(sys.argv) != 3:
+        print("Usage: python main.py /path/to/tender.pdf /path/to/response-template.docx")
         sys.exit(1)
 
-    run(sys.argv[1])
+    run(sys.argv[1], sys.argv[2])

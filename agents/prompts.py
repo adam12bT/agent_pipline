@@ -7,16 +7,27 @@ here instead of defining its own inline string.
 """
 
 # Extraction Agent
-EXTRACTION_PROMPT = """Based ONLY on the tender document excerpts provided, extract the following \
-information and respond with ONLY a valid JSON object (no markdown fences, no extra text):
+EXTRACTION_PROMPT = """Two separately labelled sources are provided above: tender excerpts and \
+response-template excerpts. Extract tender facts ONLY from the tender excerpts and template rules \
+ONLY from the response-template excerpts. Respond with ONLY a valid JSON object (no markdown \
+fences, no extra text):
 
 {
   "scope_summary": "2-3 sentence summary of what work is being requested",
   "deliverables": ["list", "of", "expected", "deliverables"],
+  "technical_constraints": ["technologies, integrations, security, hosting, standards, or performance constraints"],
+  "contractual_constraints": ["eligibility, legal, commercial, warranty, SLA, or contractual obligations"],
+  "mandatory_requirements": ["requirements explicitly described as mandatory, required, shall, or must"],
   "deadlines": {"submission_deadline": "date if stated, else null", "project_duration": "if stated, else null"},
   "budget": "budget or price range if stated, else null",
   "evaluation_criteria": ["list of how proposals will be scored"],
-  "selection_method": "e.g. QCBS, QBS, LCS, if stated, else null"
+  "selection_method": "e.g. QCBS, QBS, LCS, if stated, else null",
+  "response_template": {
+    "required_sections": ["exact section titles required by the response template"],
+    "section_order": ["exact section titles in their required order"],
+    "instructions": ["content instructions attached to individual sections"],
+    "formatting_requirements": ["page limits, fonts, tables, annexes, language, or other formatting rules"]
+  }
 }
 
 If a field cannot be found in the document, use null or an empty list — do not guess."""
@@ -71,6 +82,15 @@ that is actually specific to this tender.
 RELEVANT TENDER DOCUMENT EXCERPTS:
 {tender_excerpts}
 
+CLIENT RESPONSE TEMPLATE EXCERPTS:
+{response_template_excerpts}
+
+EXTRACTED RESPONSE TEMPLATE RULES:
+{response_template_rules}
+
+REVISION FEEDBACK FROM THE PREVIOUS QUALITY REVIEW:
+{revision_feedback}
+
 EXTRACTED REQUIREMENTS:
 {requirements}
 
@@ -91,7 +111,9 @@ just match the general style and level of detail):
 
 Write the proposal in Markdown with these sections, each meeting the stated minimum depth. \
 Treat the minimums as a floor: expand further wherever the tender's requirements give you real \
-material to work with.
+material to work with. The client's response-template section titles, ordering, and formatting \
+instructions take precedence over the default structure below. When the client template does not \
+specify a structure, use the following default.
 
 1. **Executive Summary** (~150-250 words) — who we are, what we're proposing, and the single \
 strongest reason we're the right fit. No sub-bullets here; flowing prose.
@@ -131,3 +153,37 @@ Do not invent specific figures, dates, project names, or consultant names that a
 in the material above or the tender document itself — leave a clear placeholder like \
 [TO BE CONFIRMED] instead of making something up. Write in a professional, confident register \
 appropriate for a formal procurement submission."""
+
+
+# Quality Agent: groundedness and coherence evaluator
+QUALITY_GROUNDING_PROMPT_TEMPLATE = """You are an evidence-grounding reviewer for a formal \
+technical proposal. Compare the proposal against the exact evidence that was supplied to its \
+writer. Do not use outside knowledge. Distinguish factual claims (dates, budgets, requirements, \
+credentials, named people/projects, competitor facts) from clearly labelled recommendations, \
+plans, assumptions, and placeholders.
+
+EVIDENCE AVAILABLE TO THE WRITER:
+{evidence}
+
+PROPOSAL TO REVIEW:
+{draft}
+
+Return ONLY valid JSON using this schema:
+{{
+  "groundedness_score": 0.0,
+  "coherence_score": 0.0,
+  "unsupported_claims": [
+    {{"claim": "exact or concise claim", "reason": "why the evidence does not support it"}}
+  ],
+  "contradictions": [
+    {{"claim": "proposal claim", "evidence": "conflicting evidence"}}
+  ],
+  "coherence_issues": ["internal inconsistency, impossible sequence, or requirement mismatch"],
+  "notes": ["short reviewer note"]
+}}
+
+Scores must be numbers from 0 to 1. Groundedness measures whether factual claims are supported \
+by the evidence. Coherence measures internal consistency and consistency with tender constraints. \
+Do not penalize future-tense delivery plans merely because they have not happened yet. Do penalize \
+invented company experience, CV details, contract facts, dates, amounts, certifications, and named \
+projects. Keep each list concise and include only material issues."""

@@ -55,9 +55,12 @@ class VerifierExtractorIntegrationTests(unittest.TestCase):
 
     def test_verifier_delegates_processing_and_keeps_compact_summary(self):
         handle, file_path = tempfile.mkstemp(suffix=".pdf")
+        template_handle, template_path = tempfile.mkstemp(suffix=".docx")
         try:
             with os.fdopen(handle, "wb") as file_obj:
                 file_obj.write(b"x" * 2048)
+            with os.fdopen(template_handle, "wb") as file_obj:
+                file_obj.write(b"t" * 2048)
 
             with (
                 patch.object(
@@ -74,16 +77,49 @@ class VerifierExtractorIntegrationTests(unittest.TestCase):
             ):
                 uuid4.return_value.hex = "12345678abcdef"
                 result = verifier_module.verifier_agent(
-                    {"tender_file_path": file_path}
+                    {
+                        "tender_file_path": file_path,
+                        "response_template_file_path": template_path,
+                    }
                 )
 
             self.assertTrue(result["is_verified"])
             self.assertEqual(result["workspace_slug"], "rfp-12345678")
-            self.assertEqual(FakeExtractorClient.calls, [(file_path, "rfp-12345678")])
+            self.assertEqual(
+                result["response_template_workspace_slug"],
+                "rfp-12345678-template",
+            )
+            self.assertEqual(
+                FakeExtractorClient.calls,
+                [
+                    (file_path, "rfp-12345678"),
+                    (template_path, "rfp-12345678-template"),
+                ],
+            )
             processing = result["document_processing"]
             self.assertEqual(processing["index_result"]["blocks_sent"], 26)
             self.assertNotIn("documents", processing["index_result"])
             self.assertNotIn("blocks", processing["document"])
+            self.assertEqual(
+                result["response_template_processing"]["index_result"]["blocks_sent"],
+                26,
+            )
+        finally:
+            if os.path.exists(file_path):
+                os.unlink(file_path)
+            if os.path.exists(template_path):
+                os.unlink(template_path)
+
+    def test_verifier_blocks_when_response_template_is_missing(self):
+        handle, file_path = tempfile.mkstemp(suffix=".pdf")
+        try:
+            with os.fdopen(handle, "wb") as file_obj:
+                file_obj.write(b"x" * 2048)
+
+            result = verifier_module.verifier_agent({"tender_file_path": file_path})
+
+            self.assertFalse(result["is_verified"])
+            self.assertIn("Response template file not found", result["verification_errors"][0])
         finally:
             if os.path.exists(file_path):
                 os.unlink(file_path)

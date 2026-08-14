@@ -9,7 +9,7 @@ importable):
 Endpoints
 ---------
 Pipeline runs:
-  POST   /api/runs                       upload a tender file, start a run
+  POST   /api/runs                       upload tender + response template, start a run
   GET    /api/runs                       list all runs (summary)
   GET    /api/runs/{run_id}              full state of one run (poll this)
   GET    /api/runs/{run_id}/download     download the draft proposal (.md)
@@ -54,6 +54,8 @@ from company_knowledge import (  # noqa: E402
     REFERENCES_WORKSPACE,
     ensure_company_workspaces,
 )
+from agents.quality_agent import llm_guard_available as quality_guard_available  # noqa: E402
+from agents.security_agent import llm_guard_available as security_guard_available  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +98,14 @@ def _save_upload(upload: UploadFile, subdir: str) -> str:
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "stages": PIPELINE_STAGES}
+    return {
+        "ok": True,
+        "stages": PIPELINE_STAGES,
+        "capabilities": {
+            "llm_guard_quality": quality_guard_available(),
+            "llm_guard_security": security_guard_available(),
+        },
+    }
 
 
 # --------------------------------------------------------------------------
@@ -104,7 +113,7 @@ def health():
 # --------------------------------------------------------------------------
 
 @app.post("/api/runs")
-async def start_run(file: UploadFile = File(...)):
+async def start_run(file: UploadFile = File(...), template: UploadFile = File(...)):
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in SUPPORTED_TENDER_EXTENSIONS:
         raise HTTPException(
@@ -112,9 +121,28 @@ async def start_run(file: UploadFile = File(...)):
             f"Unsupported file type '{ext}'. Supported types: {sorted(SUPPORTED_TENDER_EXTENSIONS)}",
         )
 
+    template_ext = os.path.splitext(template.filename or "")[1].lower()
+    if template_ext not in SUPPORTED_TENDER_EXTENSIONS:
+        raise HTTPException(
+            400,
+            f"Unsupported response template type '{template_ext}'. "
+            f"Supported types: {sorted(SUPPORTED_TENDER_EXTENSIONS)}",
+        )
+
     dest_path, _ = _save_upload(file, "tenders")
-    run_id = create_run(tender_file_path=dest_path, original_filename=file.filename)
-    logger.info("Started run %s for tender %r", run_id, file.filename)
+    template_path, _ = _save_upload(template, "response-templates")
+    run_id = create_run(
+        tender_file_path=dest_path,
+        original_filename=file.filename,
+        response_template_file_path=template_path,
+        response_template_filename=template.filename,
+    )
+    logger.info(
+        "Started run %s for tender %r with response template %r",
+        run_id,
+        file.filename,
+        template.filename,
+    )
     return {"run_id": run_id}
 
 

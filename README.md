@@ -15,6 +15,29 @@ Deployed automatically from the `main` branch via GitHub Actions.
 
 Backend: FastAPI (`backend/api.py`). See `/api/health` for a liveness check.
 
+## Starting a proposal run
+
+Phase 3 requires both the tender and the client's response template. Submit
+them as multipart fields named `file` and `template`:
+
+```powershell
+curl.exe -X POST http://localhost:8000/api/runs `
+  -F "file=@C:\documents\tender.pdf" `
+  -F "template=@C:\documents\response-template.docx"
+```
+
+The verifier rejects a run when either document is absent, unsupported, or
+empty. It indexes the two files into separate workspaces so tender facts and
+template instructions remain isolated. If a client supplies no dedicated
+template, upload the company's approved default response template.
+
+The Quality stage preserves the exact evidence supplied to Generation and
+uses it to score groundedness and coherence. A failed review is included as
+revision feedback on the next generation attempt. The Groq provider honors
+`Retry-After` and otherwise uses exponential backoff with jitter. Production
+Docker builds also fail if LLM Guard cannot be imported; `/api/health` reports
+the security and quality scanner capabilities.
+
 ## Phase 2: RAG ingestion and validation
 
 The standalone extractor is responsible for PDF/DOCX parsing, bilingual OCR,
