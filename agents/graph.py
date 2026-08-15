@@ -56,6 +56,12 @@ def _route_after_security(state: RFPState) -> str:
     return END if not state.get("security_passed", True) else "quality"
 
 
+def _route_after_generation(state: RFPState) -> str:
+    """Never present an empty/failed generation as a clean security scan."""
+    draft = state.get("draft_proposal") or ""
+    return "security" if draft.strip() else END
+
+
 def _route_after_quality(state: RFPState) -> str:
     status = state.get("status")
     if status == "retry_generation":
@@ -93,7 +99,10 @@ def build_graph():
     graph.add_edge("extraction", "generation")
     graph.add_edge("research", "generation")
 
-    graph.add_edge("generation", "security")
+    graph.add_conditional_edges("generation", _route_after_generation, {
+        "security": "security",
+        END: END,
+    })
 
     graph.add_conditional_edges("security", _route_after_security, {
         "quality": "quality",

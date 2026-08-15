@@ -1,6 +1,7 @@
 import unittest
 
-from agents.generation_agent import _proposal_structure
+from agents.generation_agent import _proposal_structure, _section_batches
+from agents.graph import _route_after_generation
 from agents.quality_agent import (
     _check_section_order,
     _check_template_compliance,
@@ -9,6 +10,25 @@ from agents.quality_agent import (
 
 
 class ResponseTemplateQualityTests(unittest.TestCase):
+    def test_template_sections_are_batched_dynamically_in_groups_of_three(self):
+        sections = [f"Custom section {index}" for index in range(1, 8)]
+
+        batches = _section_batches(
+            {"section_order": sections},
+            batch_size=3,
+        )
+
+        self.assertEqual(
+            batches,
+            [sections[0:3], sections[3:6], sections[6:7]],
+        )
+
+    def test_empty_generation_stops_before_security(self):
+        self.assertNotEqual(_route_after_generation({"draft_proposal": ""}), "security")
+        self.assertEqual(
+            _route_after_generation({"draft_proposal": "proposal"}), "security"
+        )
+
     def test_client_template_replaces_default_generation_outline(self):
         outline = _proposal_structure(
             {
