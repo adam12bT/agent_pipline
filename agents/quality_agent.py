@@ -138,12 +138,39 @@ def _template_sections(state: dict) -> tuple[list[str], list[str]]:
     return required or REQUIRED_SECTIONS, ordered or required or REQUIRED_SECTIONS
 
 
+def _canonical_section_title(value: str) -> str:
+    """Normalize client numbering and Markdown decoration for comparison."""
+    title = str(value).strip().casefold()
+    title = re.sub(r"^\s{0,3}#{1,6}\s*", "", title)
+    title = re.sub(r"[*_`]", "", title)
+    title = re.sub(r"^\s*(?:section\s+)?\d+(?:\.\d+)*[.)\-:]?\s*", "", title)
+    return re.sub(r"\s+", " ", title).strip(" :-–—")
+
+
+def _section_positions(draft: str, sections: list[str]) -> list[int]:
+    normalized_lines = [_canonical_section_title(line) for line in draft.splitlines()]
+    positions = []
+    for section in sections:
+        target = _canonical_section_title(section)
+        position = next(
+            (
+                index
+                for index, line in enumerate(normalized_lines)
+                if line == target or line.startswith(f"{target}:")
+            ),
+            -1,
+        )
+        positions.append(position)
+    return positions
+
+
 def _check_template_compliance(draft: str, required_sections: list[str]) -> list[str]:
-    return [section for section in required_sections if section.lower() not in draft.lower()]
+    positions = _section_positions(draft, required_sections)
+    return [section for section, position in zip(required_sections, positions) if position < 0]
 
 
 def _check_section_order(draft: str, section_order: list[str]) -> list[str]:
-    positions = [draft.lower().find(section.lower()) for section in section_order]
+    positions = _section_positions(draft, section_order)
     present_positions = [position for position in positions if position >= 0]
     if len(present_positions) < 2 or present_positions == sorted(present_positions):
         return []

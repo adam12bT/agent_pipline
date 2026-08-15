@@ -8,6 +8,53 @@ from retrieval import get_relevant_chunks
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_PROPOSAL_SECTIONS = [
+    "Executive Summary",
+    "Understanding of the Requirements",
+    "Proposed Approach & Methodology",
+    "Indicative Work Plan / Timeline",
+    "Risk Management & Quality Assurance",
+    "Proposed Team (Profils Proposés)",
+    "Why Us",
+]
+
+
+def _proposal_structure(response_template_rules: dict) -> str:
+    """Turn extracted template rules into an explicit Markdown outline.
+
+    The old prompt always included a detailed default outline, which competed
+    with an uploaded client template. Defaults are now used only when the
+    template genuinely contains no section structure.
+    """
+    rules = response_template_rules if isinstance(response_template_rules, dict) else {}
+    raw_sections = rules.get("section_order") or rules.get("required_sections") or []
+    sections = [str(section).strip() for section in raw_sections if str(section).strip()]
+    using_client_template = bool(sections)
+    if not sections:
+        sections = _DEFAULT_PROPOSAL_SECTIONS
+
+    lines = [
+        "CLIENT TEMPLATE — USE THESE EXACT HEADINGS AND THIS EXACT ORDER:"
+        if using_client_template
+        else "NO CLIENT SECTION OUTLINE WAS FOUND — USE THESE DEFAULT HEADINGS:",
+        *[f"## {section}" for section in sections],
+    ]
+
+    instructions = rules.get("instructions") or rules.get("template_instructions") or []
+    formatting = rules.get("formatting_requirements") or []
+    if isinstance(instructions, str):
+        instructions = [instructions]
+    if isinstance(formatting, str):
+        formatting = [formatting]
+    if instructions:
+        lines.extend(["", "Template instructions:"])
+        lines.extend(f"- {item}" for item in instructions if str(item).strip())
+    if formatting:
+        lines.extend(["", "Formatting requirements:"])
+        lines.extend(f"- {item}" for item in formatting if str(item).strip())
+
+    return "\n".join(lines)
+
 
 def _search_company_knowledge(client: AnythingLLMClient, workspace_slug: str, query: str,
                                 top_n: int = 3) -> str:
@@ -57,6 +104,7 @@ def generation_agent(state: dict) -> dict:
         top_n=10,
     )
     response_template_rules = requirements.get("response_template", {})
+    proposal_structure = _proposal_structure(response_template_rules)
     revision_feedback = state.get("quality_report") or "(first generation attempt)"
 
     generation_evidence = {
@@ -73,6 +121,7 @@ def generation_agent(state: dict) -> dict:
         tender_excerpts=tender_excerpts,
         response_template_excerpts=response_template_excerpts,
         response_template_rules=response_template_rules,
+        proposal_structure=proposal_structure,
         revision_feedback=revision_feedback,
         requirements=requirements,
         research_summary=state.get("research_summary", "(no research available)"),

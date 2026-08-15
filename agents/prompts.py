@@ -109,45 +109,20 @@ RELEVANT PAST PROPOSALS (for tone/structure reference only — do not copy text 
 just match the general style and level of detail):
 {past_proposals}
 
-Write the proposal in Markdown with these sections, each meeting the stated minimum depth. \
-Treat the minimums as a floor: expand further wherever the tender's requirements give you real \
-material to work with. The client's response-template section titles, ordering, and formatting \
-instructions take precedence over the default structure below. When the client template does not \
-specify a structure, use the following default.
+MANDATORY PROPOSAL STRUCTURE:
+{proposal_structure}
 
-1. **Executive Summary** (~150-250 words) — who we are, what we're proposing, and the single \
-strongest reason we're the right fit. No sub-bullets here; flowing prose.
+Write a complete, substantive Markdown section beneath every heading above. Reproduce each \
+heading exactly, including any numbering, accents, and wording supplied by the client. Do not \
+replace client headings with the default English structure, omit sections, merge sections, or \
+add an alternative top-level outline. Map the tender requirements, deliverables, methodology, \
+timeline, risks, quality controls, security measures, team evidence, and commercial constraints \
+into the most appropriate client-defined sections.
 
-2. **Understanding of the Requirements** (~300-400 words) — restate the scope, deliverables, \
-deadlines, budget, and evaluation criteria in your own words to demonstrate genuine \
-comprehension. Explicitly call out any ambiguities or risks you notice in the tender itself.
-
-3. **Proposed Approach & Methodology** (~500-700 words) — break this into named phases or \
-workstreams (e.g. Discovery & Requirements, Design & Architecture, Build, Data Migration, \
-Testing & UAT, Training, Deployment, Support) that map onto the actual deliverables listed \
-above. For each phase, describe concretely what will be done, the key activities, and what \
-"done" looks like. Do not just name the phases — explain the reasoning behind the approach.
-
-4. **Indicative Work Plan / Timeline** (~200-300 words plus a Markdown table) — provide a table \
-with columns Phase | Duration | Key Milestones, consistent with the project duration stated in \
-the requirements. Follow the table with a short paragraph on sequencing and dependencies.
-
-5. **Risk Management & Quality Assurance** (~200-300 words) — identify 3-5 concrete risks \
-specific to this tender (e.g. data migration integrity, staff adoption across many sites, \
-integration with external systems) and the mitigation for each, plus how quality will be \
-assured throughout (testing strategy, review gates, acceptance criteria).
-
-6. **Proposed Team (Profils Proposés)** — based ONLY on the CV excerpts above. If no CV \
-excerpts were provided, write exactly: "[TEAM PROFILES TO BE COMPLETED — no matching CVs found \
-in the company knowledge base]" instead of inventing anyone. If excerpts were provided, give \
-each person a short paragraph: role on this project, relevant background, and why they fit \
-this specific tender.
-
-7. **Why Us** (~250-350 words) — reference the past project references above if any were found, \
-and the market research for competitive positioning against likely competitors. If no past \
-references were found, keep this section general rather than inventing specific past projects, \
-but still make a substantive case (methodology strengths, team depth, understanding of the \
-sector) rather than a one-line platitude.
+For team content, use ONLY the CV excerpts above. If no CV excerpts were provided, include the \
+clearly labelled placeholder "[TEAM PROFILES TO BE COMPLETED — no matching CVs found in the \
+company knowledge base]" in the relevant client section instead of inventing names, roles, or \
+experience.
 
 Do not invent specific figures, dates, project names, or consultant names that are not present \
 in the material above or the tender document itself — leave a clear placeholder like \
@@ -184,6 +159,12 @@ Return ONLY valid JSON using this schema:
 
 Scores must be numbers from 0 to 1. Groundedness measures whether factual claims are supported \
 by the evidence. Coherence measures internal consistency and consistency with tender constraints. \
-Do not penalize future-tense delivery plans merely because they have not happened yet. Do penalize \
-invented company experience, CV details, contract facts, dates, amounts, certifications, and named \
-projects. Keep each list concise and include only material issues."""
+Facts copied from the tender requirements (including its duration, warranty, budget, dates, and \
+constraints) are supported claims; do not demand separate proof that the bidder can comply with \
+them. A contradiction requires evidence that directly conflicts with the proposal—not merely an \
+absence of capability evidence. Do not penalize future-tense delivery plans merely because they \
+have not happened yet. Explicit placeholders in square brackets, including TEAM PROFILES TO BE \
+COMPLETED and TO BE CONFIRMED, are disclosures of missing information and must not be listed as \
+unsupported factual claims. Do penalize invented company experience, CV details, contract facts, \
+dates, amounts, certifications, and named projects. Keep each list concise and include only \
+material issues."""
