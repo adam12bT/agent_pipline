@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from agents.generation_agent import _proposal_structure, _section_batches
 from agents.graph import _route_after_generation
@@ -6,10 +7,53 @@ from agents.quality_agent import (
     _check_section_order,
     _check_template_compliance,
     _template_sections,
+    quality_agent,
 )
 
 
 class ResponseTemplateQualityTests(unittest.TestCase):
+    def test_quality_evaluator_error_does_not_retry_generation(self):
+        draft = "\n".join(
+            f"# {section}\n" + ("substantive content " * 30)
+            for section in [
+                "Executive Summary",
+                "Understanding of the Requirements",
+                "Proposed Approach & Methodology",
+                "Indicative Work Plan / Timeline",
+                "Risk Management & Quality Assurance",
+                "Proposed Team (Profils Proposés)",
+                "Why Us",
+            ]
+        )
+        evaluator_result = {
+            "groundedness_score": 0.0,
+            "coherence_score": 0.0,
+            "unsupported_claims": [],
+            "contradictions": [],
+            "coherence_issues": [],
+            "notes": [],
+            "evaluation_error": "HTTP 413 request too large",
+        }
+
+        with patch(
+            "agents.quality_agent._evaluate_grounding_and_coherence",
+            return_value=evaluator_result,
+        ):
+            result = quality_agent(
+                {
+                    "is_verified": True,
+                    "security_passed": True,
+                    "draft_proposal": draft,
+                    "generation_attempts": 1,
+                }
+            )
+
+        self.assertEqual(result["status"], "failed")
+        self.assertFalse(result["quality_passed"])
+        self.assertTrue(
+            any("without regenerating" in note for note in result["quality_report"]["notes"])
+        )
+
     def test_template_sections_are_batched_dynamically_in_groups_of_three(self):
         sections = [f"Custom section {index}" for index in range(1, 8)]
 

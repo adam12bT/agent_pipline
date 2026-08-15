@@ -275,8 +275,9 @@ def quality_agent(state: dict) -> dict:
     grounding_review = _evaluate_grounding_and_coherence(state, draft)
     groundedness_score = grounding_review["groundedness_score"]
     coherence_score = grounding_review["coherence_score"]
+    evaluator_error = bool(grounding_review.get("evaluation_error"))
     grounding_failed = (
-        bool(grounding_review.get("evaluation_error"))
+        evaluator_error
         or groundedness_score < MIN_GROUNDEDNESS_SCORE
         or coherence_score < MIN_COHERENCE_SCORE
         or bool(grounding_review.get("contradictions"))
@@ -298,6 +299,10 @@ def quality_agent(state: dict) -> dict:
             f"(minimum {MIN_GROUNDEDNESS_SCORE:.2f}), "
             f"coherence={coherence_score:.2f} "
             f"(minimum {MIN_COHERENCE_SCORE:.2f})."
+        )
+    if evaluator_error:
+        notes.append(
+            "Quality evaluator unavailable; stopping without regenerating the proposal."
         )
     if grounding_review.get("unsupported_claims"):
         notes.append(
@@ -327,7 +332,13 @@ def quality_agent(state: dict) -> dict:
     }
 
     attempts = state.get("generation_attempts", 0)
-    if not passed and attempts < MAX_GENERATION_ATTEMPTS:
+    if evaluator_error:
+        status = "failed"
+        logger.error(
+            "Quality evaluator failed; stopping without proposal regeneration: %s",
+            grounding_review.get("evaluation_error"),
+        )
+    elif not passed and attempts < MAX_GENERATION_ATTEMPTS:
         status = "retry_generation"
         logger.info(
             "Quality check failed (attempt %d/%d) — retrying generation. Notes: %s",
