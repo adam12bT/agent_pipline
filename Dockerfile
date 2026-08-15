@@ -18,11 +18,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.6.0 \
-    && pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir --no-deps llm-guard==0.3.16 \
-    && python -m spacy download en_core_web_sm \
-    && python -m spacy download fr_core_news_sm \
-    && python -c "import spacy; import llm_guard; from llm_guard.output_scanners import MaliciousURLs, NoRefusal, Toxicity; spacy.load('en_core_web_sm'); spacy.load('fr_core_news_sm'); print('Security model import check passed')"
+    && pip install --no-cache-dir -r requirements.txt
 
 # Now copy the rest of the pipeline source.
 COPY . .

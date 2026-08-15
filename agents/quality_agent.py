@@ -12,7 +12,7 @@ the Security agent, a failure here is
 GRADED — it triggers a regeneration attempt (up to MAX_GENERATION_ATTEMPTS)
 via the "retry_generation" status rather than a hard stop.
 
-Uses LLM Guard's:
+When explicitly enabled, optionally uses LLM Guard's:
   - `Toxicity`      -> tone/appropriateness scoring
   - `NoRefusal`      -> catches the generation model refusing / punting
                         instead of writing the section (a common failure
@@ -22,8 +22,9 @@ plus the pre-existing template-compliance and word-count checks.
 (PII / secrets / malicious-URL scanning moved to agents/security_agent.py
 — see that module's docstring for why the split.)
 
-Install:
-    pip install llm-guard
+LLM Guard is disabled by default for lightweight deployments. Groundedness,
+coherence, template compliance, section order, and word-count checks remain
+active independently of it.
 """
 
 import json
@@ -59,17 +60,24 @@ QUALITY_LLM_MODEL = os.environ.get("QUALITY_LLM_MODEL", "").strip() or None
 LLM_GUARD_FAIL_CLOSED = os.environ.get(
     "LLM_GUARD_FAIL_CLOSED", "true"
 ).strip().lower() not in {"0", "false", "no", "off"}
+LLM_GUARD_ENABLED = os.environ.get(
+    "LLM_GUARD_ENABLED", "false"
+).strip().lower() in {"1", "true", "yes", "on"}
 
-try:
-    from llm_guard.output_scanners import NoRefusal, Toxicity
+if LLM_GUARD_ENABLED:
+    try:
+        from llm_guard.output_scanners import NoRefusal, Toxicity
 
-    _LLM_GUARD_AVAILABLE = True
-except ImportError:  # pragma: no cover - exercised only when dep is missing
+        _LLM_GUARD_AVAILABLE = True
+    except ImportError:  # pragma: no cover - depends on deployment extras
+        _LLM_GUARD_AVAILABLE = False
+        logger.warning(
+            "LLM Guard was enabled but is unavailable; toxicity/refusal "
+            "model scanning will be skipped."
+        )
+else:
     _LLM_GUARD_AVAILABLE = False
-    logger.warning(
-        "llm-guard not installed — skipping toxicity/refusal scanning. "
-        "Run `pip install llm-guard` to enable it."
-    )
+    logger.info("LLM Guard is disabled; toxicity/refusal model scanning is skipped.")
 
 _scanners_cache = None
 

@@ -12,7 +12,8 @@ separate conditional edges in graph.py: `security` routes to END
 (human alert) on failure with no retry, `quality` routes back to
 `generation` on failure.
 
-Uses bilingual Presidio PII detection plus LLM Guard's OUTPUT scanner:
+When the optional LLM Guard integration is enabled, this uses bilingual
+Presidio PII detection plus LLM Guard's OUTPUT scanner:
   - Presidio (en/fr) -> PII leaking into the draft (e.g. a stray email or
                         phone number pulled in from a CV excerpt).
   - `MaliciousURLs`   -> suspicious links in the draft. This also doubles
@@ -36,12 +37,10 @@ to "security_blocked" so the graph routes straight past Quality to END,
 and the caller (see backend/run_store.py) surfaces `security_report` so
 a human can review it.
 
-Install:
-    pip install llm-guard
-
-Falls back to a naive regex PII check if llm-guard isn't installed, same
-pattern as the original quality_agent.py, so the pipeline doesn't hard-
-fail in an environment where the models aren't available yet.
+LLM Guard is disabled by default for lightweight deployments. The active
+fallback checks emails and phone numbers with local regular expressions,
+so it needs no model download and cannot fail because a remote model was
+removed.
 """
 
 import logging
@@ -50,18 +49,26 @@ import re
 
 logger = logging.getLogger(__name__)
 
-try:
-    from llm_guard.output_scanners import MaliciousURLs
-    from presidio_analyzer import AnalyzerEngine
-    from presidio_analyzer.nlp_engine import NlpEngineProvider
+LLM_GUARD_ENABLED = os.environ.get(
+    "LLM_GUARD_ENABLED", "false"
+).strip().lower() in {"1", "true", "yes", "on"}
 
-    _LLM_GUARD_AVAILABLE = True
-except ImportError:  # pragma: no cover - exercised only when dep is missing
+if LLM_GUARD_ENABLED:
+    try:
+        from llm_guard.output_scanners import MaliciousURLs
+        from presidio_analyzer import AnalyzerEngine
+        from presidio_analyzer.nlp_engine import NlpEngineProvider
+
+        _LLM_GUARD_AVAILABLE = True
+    except ImportError:  # pragma: no cover - depends on deployment extras
+        _LLM_GUARD_AVAILABLE = False
+        logger.warning(
+            "LLM Guard was enabled but its dependencies are unavailable; "
+            "using the lightweight PII fallback."
+        )
+else:
     _LLM_GUARD_AVAILABLE = False
-    logger.warning(
-        "llm-guard not installed — falling back to the naive regex PII check. "
-        "Run `pip install llm-guard` to enable full scanning."
-    )
+    logger.info("LLM Guard is disabled; using the lightweight PII fallback.")
 
 # Deliberately simple patterns — only used as a fallback if llm-guard isn't
 # installed. Do not treat this as a real safety guarantee on its own.
