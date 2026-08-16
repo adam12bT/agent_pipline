@@ -1,7 +1,11 @@
 import unittest
 from unittest.mock import patch
 
-from agents.generation_agent import _proposal_structure, _section_batches
+from agents.generation_agent import (
+    _fit_generation_prompt,
+    _proposal_structure,
+    _section_batches,
+)
 from agents.graph import _route_after_generation
 from agents.quality_agent import (
     _check_section_order,
@@ -13,6 +17,31 @@ from agents.quality_agent import (
 
 
 class ResponseTemplateQualityTests(unittest.TestCase):
+    def test_generation_prompt_enforces_total_budget_without_cutting_instructions(self):
+        huge = "French tender evidence and requirements. " * 1000
+        prompt, fitted = _fit_generation_prompt(
+            {
+                "batch_number": 1,
+                "batch_count": 2,
+                "tender_excerpts": huge,
+                "response_template_excerpts": huge,
+                "response_template_rules": huge,
+                "proposal_structure": "## 1. Introduction\n## 2. Methodology",
+                "revision_feedback": huge,
+                "requirements": huge,
+                "research_summary": huge,
+                "project_references": huge,
+                "cv_excerpts": huge,
+                "past_proposals": huge,
+            },
+            max_chars=13000,
+        )
+
+        self.assertLessEqual(len(prompt), 13000)
+        self.assertIn("## 1. Introduction", prompt)
+        self.assertIn("Do not invent specific figures", prompt)
+        self.assertLess(len(fitted["research_summary"]), len(huge))
+
     def test_quality_failure_does_not_regenerate_by_default(self):
         sections = ["Contexte", "Solution", "Planning"]
         draft = "\n".join(

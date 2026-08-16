@@ -145,6 +145,33 @@ async def _run_research(query: str) -> str:
     researcher.cfg.max_search_results_per_query = 4
     researcher.cfg.max_subtopics = 3
     researcher.cfg.total_words = 900
+    researcher.cfg.fast_token_limit = 1200
+    researcher.cfg.smart_token_limit = 1800
+    researcher.cfg.strategic_token_limit = 1200
+    researcher.cfg.summary_token_limit = 500
+
+    # GPT Researcher creates its own ChatGroq clients, so those calls do not
+    # pass through providers/groq_provider.py. Give every internal LLM client
+    # one shared LangChain rate limiter and add boundary cooldowns so research
+    # cannot collide with the direct calls immediately before/after this step.
+    groq_models = (
+        os.environ.get("FAST_LLM", ""),
+        os.environ.get("SMART_LLM", ""),
+        os.environ.get("STRATEGIC_LLM", ""),
+    )
+    uses_groq = any(model.strip().lower().startswith("groq:") for model in groq_models)
+    groq_interval = max(
+        0.0, float(os.environ.get("GROQ_MIN_INTERVAL_SECONDS", "30"))
+    )
+    if uses_groq and groq_interval > 0:
+        from langchain_core.rate_limiters import InMemoryRateLimiter
+
+        researcher.cfg.llm_kwargs["rate_limiter"] = InMemoryRateLimiter(
+            requests_per_second=1.0 / groq_interval,
+            check_every_n_seconds=min(1.0, groq_interval),
+            max_bucket_size=1,
+        )
+        await asyncio.sleep(groq_interval)
     logger.debug(
         "GPT Researcher config tuned: max_search_results_per_query=4, "
         "max_subtopics=3, total_words=900 (source-list bloat mitigation)"
@@ -152,6 +179,8 @@ async def _run_research(query: str) -> str:
 
     await researcher.conduct_research()
     report = await researcher.write_report()
+    if uses_groq and groq_interval > 0:
+        await asyncio.sleep(groq_interval)
     return report
 
 

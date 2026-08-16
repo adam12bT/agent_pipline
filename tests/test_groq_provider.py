@@ -9,6 +9,31 @@ from providers.groq_provider import GroqProvider
 
 
 class GroqProviderRetryTests(unittest.TestCase):
+    def test_success_reserves_minimum_interval_before_next_request(self):
+        response = Mock()
+        response.ok = True
+        response.status_code = 200
+        response.json.return_value = {
+            "choices": [{"message": {"content": "ok"}}]
+        }
+
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "GROQ_API_KEY": "test-key",
+                    "GROQ_MIN_INTERVAL_SECONDS": "30",
+                },
+                clear=False,
+            ),
+            patch("providers.groq_provider.requests.post", return_value=response),
+            patch("providers.groq_provider.time.monotonic", return_value=100.0),
+        ):
+            provider = GroqProvider()
+            self.assertEqual(provider.complete("hello"), "ok")
+
+        self.assertEqual(provider._next_request_at, 130.0)
+
     def test_long_retry_after_fails_without_sleeping_or_retrying(self):
         response = Mock()
         response.ok = False

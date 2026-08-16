@@ -2,7 +2,12 @@ import logging
 import os
 
 from anythingllm_client import AnythingLLMClient
-from company_knowledge import PROPOSALS_WORKSPACE, CVS_WORKSPACE, REFERENCES_WORKSPACE
+from company_knowledge import (
+    PROPOSALS_WORKSPACE,
+    CVS_WORKSPACE,
+    REFERENCES_WORKSPACE,
+    ensure_company_workspaces,
+)
 from .prompts import GENERATION_PROMPT_TEMPLATE
 from providers import get_provider
 from retrieval import get_relevant_chunks
@@ -79,6 +84,61 @@ def _clip(value, limit: int) -> str:
     return f"{text[:limit]}\n[context truncated to {limit} characters]"
 
 
+def _truncate_to_length(value: str, target_length: int) -> str:
+    marker = "\n[truncated to fit Groq request budget]"
+    if len(value) <= target_length:
+        return value
+    if target_length <= len(marker):
+        return value[:target_length]
+    return f"{value[: target_length - len(marker)]}{marker}"
+
+
+def _fit_generation_prompt(format_values: dict, max_chars: int) -> tuple[str, dict]:
+    """Render a prompt whose *total* size stays below the Groq free-tier budget.
+
+    Per-field clipping is insufficient because the generation prompt combines
+    several independent RAG fields. Keep the fixed instructions and proposal
+    headings intact, then progressively trim optional evidence fields.
+    """
+    fitted = {key: str(value) for key, value in format_values.items()}
+    prompt = GENERATION_PROMPT_TEMPLATE.format(**fitted)
+    if len(prompt) <= max_chars:
+        return prompt, fitted
+
+    # Lower-priority/reference material is reduced first. Tender facts,
+    # extracted requirements, template rules and headings retain larger floors.
+    shrink_order = [
+        ("past_proposals", 200),
+        ("revision_feedback", 200),
+        ("research_summary", 500),
+        ("project_references", 500),
+        ("cv_excerpts", 500),
+        ("response_template_excerpts", 700),
+        ("tender_excerpts", 1200),
+        ("requirements", 1200),
+        ("response_template_rules", 700),
+    ]
+    for field, minimum in shrink_order:
+        overflow = len(prompt) - max_chars
+        if overflow <= 0:
+            break
+        current = fitted[field]
+        reducible = max(0, len(current) - minimum)
+        if not reducible:
+            continue
+        # Leave room for the truncation marker added by the helper.
+        target = len(current) - min(reducible, overflow + 50)
+        fitted[field] = _truncate_to_length(current, max(minimum, target))
+        prompt = GENERATION_PROMPT_TEMPLATE.format(**fitted)
+
+    if len(prompt) > max_chars:
+        raise ValueError(
+            "The fixed generation instructions exceed the configured total "
+            f"prompt budget of {max_chars} characters."
+        )
+    return prompt, fitted
+
+
 def _search_company_knowledge(client: AnythingLLMClient, workspace_slug: str, query: str,
                                 top_n: int = 3) -> str:
     """Search one company knowledge workspace and format results as readable text.
@@ -106,6 +166,12 @@ def generation_agent(state: dict) -> dict:
         return {}
 
     client = AnythingLLMClient()
+    try:
+        ensure_company_workspaces(client)
+    except Exception as exc:
+        # Empty/missing company knowledge should degrade proposal evidence, not
+        # terminate a tender run. Individual searches retain their own fallback.
+        logger.warning("Could not ensure company knowledge workspaces: %s", exc)
     workspace_slug = state["workspace_slug"]
     template_workspace_slug = state["response_template_workspace_slug"]
     requirements = state.get("requirements", {})
@@ -127,6 +193,9 @@ def generation_agent(state: dict) -> dict:
     )
     context_limit = max(
         2000, int(os.environ.get("GENERATION_CONTEXT_MAX_CHARS", "6000"))
+    )
+    prompt_max_chars = max(
+        8000, int(os.environ.get("GENERATION_PROMPT_MAX_CHARS", "13000"))
     )
     batches = _section_batches(response_template_rules, batch_size=batch_size)
 
@@ -161,27 +230,47 @@ def generation_agent(state: dict) -> dict:
             f"content instructions, tables and formatting for sections: {section_names}",
             top_n=4,
         )
+        prompt, fitted_context = _fit_generation_prompt(
+            {
+                "batch_number": batch_number,
+                "batch_count": len(batches),
+                "tender_excerpts": _clip(tender_excerpts, context_limit),
+                "response_template_excerpts": _clip(
+                    response_template_excerpts, context_limit
+                ),
+                "response_template_rules": _clip(
+                    response_template_rules, context_limit
+                ),
+                "proposal_structure": _proposal_structure(
+                    response_template_rules, sections
+                ),
+                "revision_feedback": _clip(revision_feedback, context_limit),
+                "requirements": _clip(requirements, context_limit),
+                "research_summary": _clip(
+                    state.get("research_summary", "(no research available)"),
+                    context_limit,
+                ),
+                "project_references": _clip(project_references, context_limit),
+                "cv_excerpts": _clip(cv_excerpts, context_limit),
+                "past_proposals": _clip(past_proposals, context_limit),
+            },
+            prompt_max_chars,
+        )
         batch_evidence = {
             "sections": sections,
-            "tender_excerpts": tender_excerpts,
-            "response_template_excerpts": response_template_excerpts,
+            "tender_excerpts": fitted_context["tender_excerpts"],
+            "response_template_excerpts": fitted_context[
+                "response_template_excerpts"
+            ],
+            "prompt_chars": len(prompt),
         }
         generation_evidence["section_batches"].append(batch_evidence)
-        prompt = GENERATION_PROMPT_TEMPLATE.format(
-            batch_number=batch_number,
-            batch_count=len(batches),
-            tender_excerpts=_clip(tender_excerpts, context_limit),
-            response_template_excerpts=_clip(response_template_excerpts, context_limit),
-            response_template_rules=response_template_rules,
-            proposal_structure=_proposal_structure(response_template_rules, sections),
-            revision_feedback=_clip(revision_feedback, context_limit),
-            requirements=_clip(requirements, context_limit),
-            research_summary=_clip(
-                state.get("research_summary", "(no research available)"), context_limit
-            ),
-            project_references=_clip(project_references, context_limit),
-            cv_excerpts=_clip(cv_excerpts, context_limit),
-            past_proposals=_clip(past_proposals, context_limit),
+        logger.info(
+            "Generation batch %d/%d prompt fitted to %d/%d characters",
+            batch_number,
+            len(batches),
+            len(prompt),
+            prompt_max_chars,
         )
 
         try:

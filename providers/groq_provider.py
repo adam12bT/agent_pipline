@@ -15,6 +15,7 @@ Env vars:
     GROQ_RETRY_BASE_SECONDS           exponential-backoff starting delay
     GROQ_RETRY_MAX_SECONDS            maximum delay between attempts
     GROQ_RETRY_JITTER_SECONDS         random jitter added to retry delays
+    GROQ_MIN_INTERVAL_SECONDS         minimum delay between successful requests
     GROQ_TIMEOUT_SECONDS              HTTP request timeout
 """
 
@@ -64,6 +65,9 @@ class GroqProvider(LLMProvider):
         )
         self._max_retry_after_seconds = max(
             0.0, float(os.environ.get("GROQ_MAX_RETRY_AFTER_SECONDS", "60"))
+        )
+        self._min_interval_seconds = max(
+            0.0, float(os.environ.get("GROQ_MIN_INTERVAL_SECONDS", "30"))
         )
         self._timeout_seconds = max(
             1.0, float(os.environ.get("GROQ_TIMEOUT_SECONDS", "120"))
@@ -176,6 +180,7 @@ class GroqProvider(LLMProvider):
 
                     if response.ok:
                         data = response.json()
+                        self._reserve_retry_window(self._min_interval_seconds)
                         return data["choices"][0]["message"]["content"]
 
                     if (
