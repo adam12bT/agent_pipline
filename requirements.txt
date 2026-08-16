@@ -2,6 +2,7 @@
 langgraph
 requests
 python-dotenv
+json-repair
 python-docx
 pypdf
 gpt-researcher @ https://github.com/assafelovic/gpt-researcher/archive/5cdad9cb434754188b78bd998df18dd8d502cf7e.tar.gz

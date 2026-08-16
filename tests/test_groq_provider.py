@@ -26,13 +26,25 @@ class GroqProviderRetryTests(unittest.TestCase):
                 },
                 clear=False,
             ),
-            patch("providers.groq_provider.requests.post", return_value=response),
+            patch(
+                "providers.groq_provider.requests.post", return_value=response
+            ) as post,
             patch("providers.groq_provider.time.monotonic", return_value=100.0),
         ):
             provider = GroqProvider()
-            self.assertEqual(provider.complete("hello"), "ok")
+            self.assertEqual(
+                provider.complete(
+                    "Return JSON",
+                    response_format={"type": "json_object"},
+                ),
+                "ok",
+            )
 
         self.assertEqual(provider._next_request_at, 130.0)
+        self.assertEqual(
+            post.call_args.kwargs["json"]["response_format"],
+            {"type": "json_object"},
+        )
 
     def test_long_retry_after_fails_without_sleeping_or_retrying(self):
         response = Mock()

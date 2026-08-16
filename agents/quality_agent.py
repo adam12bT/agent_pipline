@@ -32,6 +32,8 @@ import logging
 import os
 import re
 
+from json_repair import loads as repair_json_loads
+
 from agents.prompts import QUALITY_GROUNDING_PROMPT_TEMPLATE
 from providers import get_provider
 
@@ -195,16 +197,25 @@ def _score(value) -> float:
 
 def _extract_review_json(text: str) -> dict:
     candidate = text.strip()
+    if not candidate:
+        raise ValueError("Grounding evaluator returned an empty response")
     fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", candidate, re.DOTALL)
     if fence:
         candidate = fence.group(1)
     else:
         start = candidate.find("{")
         end = candidate.rfind("}")
-        if start >= 0 and end > start:
-            candidate = candidate[start : end + 1]
+        if start >= 0:
+            candidate = candidate[start : end + 1] if end > start else candidate[start:]
 
-    parsed = json.loads(candidate)
+    try:
+        parsed = json.loads(candidate)
+    except json.JSONDecodeError as exc:
+        logger.warning(
+            "Quality evaluator returned malformed JSON; attempting local repair: %s",
+            exc,
+        )
+        parsed = repair_json_loads(candidate)
     if not isinstance(parsed, dict):
         raise ValueError("Grounding evaluator returned JSON that is not an object")
 
@@ -318,6 +329,7 @@ def _evaluate_grounding_and_coherence(state: dict, draft: str) -> dict:
                 temperature=0.0,
                 max_tokens=QUALITY_MAX_TOKENS,
                 model=QUALITY_LLM_MODEL,
+                response_format={"type": "json_object"},
             )
             reviews.append(_extract_review_json(response))
         except Exception as exc:

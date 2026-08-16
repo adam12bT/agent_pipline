@@ -18,6 +18,7 @@ from agents.extraction_agent import (
 from agents.quality_agent import (
     _check_section_order,
     _check_template_compliance,
+    _extract_review_json,
     _review_groups,
     _template_sections,
     quality_agent,
@@ -25,6 +26,23 @@ from agents.quality_agent import (
 
 
 class ResponseTemplateQualityTests(unittest.TestCase):
+    def test_quality_review_repairs_truncated_json_with_trailing_comma(self):
+        malformed = """```json
+        {
+          "groundedness_score": 0.82,
+          "coherence_score": 0.91,
+          "unsupported_claims": [],
+          "contradictions": [],
+          "coherence_issues": [],
+          "notes": ["Evaluation completed",]
+        """
+
+        review = _extract_review_json(malformed)
+
+        self.assertEqual(review["groundedness_score"], 0.82)
+        self.assertEqual(review["coherence_score"], 0.91)
+        self.assertEqual(review["notes"], ["Evaluation completed"])
+
     def test_docx_heading_structure_recovers_complete_template_outline(self):
         document = Document()
         expected = [

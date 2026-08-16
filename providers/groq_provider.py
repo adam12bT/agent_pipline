@@ -142,6 +142,7 @@ class GroqProvider(LLMProvider):
         **kwargs,
     ) -> str:
         request_model = kwargs.get("model") or self._model
+        response_format = kwargs.get("response_format")
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -166,22 +167,28 @@ class GroqProvider(LLMProvider):
                         total_attempts,
                         len(prompt),
                     )
+                    payload = {
+                        "model": request_model,
+                        "messages": messages,
+                        "temperature": temperature,
+                        "max_tokens": max_tokens,
+                    }
+                    if response_format is not None:
+                        payload["response_format"] = response_format
                     response = requests.post(
                         f"{self._base_url}/chat/completions",
                         headers={"Authorization": f"Bearer {self._api_key}"},
-                        json={
-                            "model": request_model,
-                            "messages": messages,
-                            "temperature": temperature,
-                            "max_tokens": max_tokens,
-                        },
+                        json=payload,
                         timeout=self._timeout_seconds,
                     )
 
                     if response.ok:
                         data = response.json()
                         self._reserve_retry_window(self._min_interval_seconds)
-                        return data["choices"][0]["message"]["content"]
+                        content = data["choices"][0]["message"].get("content")
+                        if not content:
+                            raise ValueError("Groq returned an empty completion")
+                        return content
 
                     if (
                         (
