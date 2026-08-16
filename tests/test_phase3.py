@@ -49,7 +49,7 @@ class ResponseTemplateQualityTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "failed")
 
-    def test_quality_review_uses_at_most_two_matching_groups(self):
+    def test_quality_review_uses_one_compact_group_by_default(self):
         section_batches = [
             {"sections": [f"S{index}"], "draft": f"draft {index}", "evidence": index}
             for index in range(4)
@@ -59,10 +59,10 @@ class ResponseTemplateQualityTests(unittest.TestCase):
             "full draft",
         )
 
-        self.assertEqual(len(groups), 2)
+        self.assertEqual(len(groups), 1)
         self.assertIn("draft 0", groups[0][1])
         self.assertIn("draft 1", groups[0][1])
-        self.assertNotIn("draft 2", groups[0][1])
+        self.assertIn("draft 2", groups[0][1])
         self.assertNotIn("draft", groups[0][0]["section_batches"][0])
 
     def test_quality_evaluator_error_does_not_retry_generation(self):

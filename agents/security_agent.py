@@ -52,6 +52,9 @@ logger = logging.getLogger(__name__)
 LLM_GUARD_ENABLED = os.environ.get(
     "LLM_GUARD_ENABLED", "false"
 ).strip().lower() in {"1", "true", "yes", "on"}
+SECURITY_FALLBACK_ENABLED = os.environ.get(
+    "SECURITY_FALLBACK_ENABLED", "false"
+).strip().lower() in {"1", "true", "yes", "on"}
 
 if LLM_GUARD_ENABLED:
     try:
@@ -68,7 +71,10 @@ if LLM_GUARD_ENABLED:
         )
 else:
     _LLM_GUARD_AVAILABLE = False
-    logger.info("LLM Guard is disabled; using the lightweight PII fallback.")
+    logger.info(
+        "LLM Guard is disabled; lightweight PII fallback is %s.",
+        "enabled" if SECURITY_FALLBACK_ENABLED else "disabled",
+    )
 
 # Deliberately simple patterns — only used as a fallback if llm-guard isn't
 # installed. Do not treat this as a real safety guarantee on its own.
@@ -85,6 +91,21 @@ LLM_GUARD_FAIL_CLOSED = os.environ.get(
 
 def llm_guard_available() -> bool:
     return _LLM_GUARD_AVAILABLE
+
+
+def security_scanner_status() -> dict:
+    if _LLM_GUARD_AVAILABLE:
+        mode = "llm_guard"
+    elif SECURITY_FALLBACK_ENABLED:
+        mode = "regex_fallback"
+    else:
+        mode = "disabled"
+    return {
+        "mode": mode,
+        "llm_guard_enabled": LLM_GUARD_ENABLED,
+        "llm_guard_available": _LLM_GUARD_AVAILABLE,
+        "fallback_enabled": SECURITY_FALLBACK_ENABLED,
+    }
 
 
 def _get_scanners():
@@ -184,15 +205,32 @@ def security_agent(state: dict) -> dict:
         return {}
 
     draft = state.get("draft_proposal", "")
-    findings = _run_llm_guard(draft) if _LLM_GUARD_AVAILABLE else _check_naive_pii(draft)
+    scanner = security_scanner_status()
+    if scanner["mode"] == "llm_guard":
+        findings = _run_llm_guard(draft)
+    elif scanner["mode"] == "regex_fallback":
+        findings = _check_naive_pii(draft)
+    else:
+        findings = {}
     passed = not findings
+
+    if scanner["mode"] == "disabled":
+        notes = [
+            "Security scanning is disabled. No automated security checks were performed."
+        ]
+    elif passed:
+        notes = ["Security scan clean."]
+    else:
+        notes = [
+            f"Security scan flagged: {findings}. Escalating to human review — "
+            "no automatic retry."
+        ]
 
     security_report = {
         "findings": findings,
-        "notes": (
-            ["Security scan clean."] if passed
-            else [f"Security scan flagged: {findings}. Escalating to human review — no automatic retry."]
-        ),
+        "notes": notes,
+        "scanner": scanner,
+        "scan_performed": scanner["mode"] != "disabled",
     }
 
     result = {

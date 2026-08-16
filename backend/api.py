@@ -55,7 +55,10 @@ from company_knowledge import (  # noqa: E402
     ensure_company_workspaces,
 )
 from agents.quality_agent import llm_guard_available as quality_guard_available  # noqa: E402
-from agents.security_agent import llm_guard_available as security_guard_available  # noqa: E402
+from agents.security_agent import (  # noqa: E402
+    llm_guard_available as security_guard_available,
+    security_scanner_status,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +107,7 @@ def health():
         "capabilities": {
             "llm_guard_quality": quality_guard_available(),
             "llm_guard_security": security_guard_available(),
+            "security_scanner": security_scanner_status(),
         },
     }
 

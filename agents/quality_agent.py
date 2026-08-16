@@ -53,16 +53,16 @@ MAX_GENERATION_ATTEMPTS = max(
 MIN_GROUNDEDNESS_SCORE = float(os.environ.get("QUALITY_MIN_GROUNDEDNESS", "0.75"))
 MIN_COHERENCE_SCORE = float(os.environ.get("QUALITY_MIN_COHERENCE", "0.75"))
 QUALITY_EVIDENCE_MAX_CHARS = max(
-    5000, int(os.environ.get("QUALITY_EVIDENCE_MAX_CHARS", "12000"))
+    5000, int(os.environ.get("QUALITY_EVIDENCE_MAX_CHARS", "8000"))
 )
 QUALITY_DRAFT_MAX_CHARS = max(
-    5000, int(os.environ.get("QUALITY_DRAFT_MAX_CHARS", "14000"))
+    5000, int(os.environ.get("QUALITY_DRAFT_MAX_CHARS", "8000"))
 )
 QUALITY_EVALUATION_BATCHES = max(
-    1, int(os.environ.get("QUALITY_EVALUATION_BATCHES", "2"))
+    1, int(os.environ.get("QUALITY_EVALUATION_BATCHES", "1"))
 )
 QUALITY_MAX_TOKENS = max(
-    512, int(os.environ.get("QUALITY_MAX_TOKENS", "1200"))
+    512, int(os.environ.get("QUALITY_MAX_TOKENS", "700"))
 )
 QUALITY_LLM_MODEL = os.environ.get("QUALITY_LLM_MODEL", "").strip() or None
 LLM_GUARD_FAIL_CLOSED = os.environ.get(

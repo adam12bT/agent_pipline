@@ -123,10 +123,10 @@ def generation_agent(state: dict) -> dict:
     revision_feedback = state.get("quality_report") or "(first generation attempt)"
     batch_size = max(1, int(os.environ.get("GENERATION_BATCH_SIZE", "3")))
     batch_max_tokens = max(
-        512, int(os.environ.get("GENERATION_BATCH_MAX_TOKENS", "3072"))
+        512, int(os.environ.get("GENERATION_BATCH_MAX_TOKENS", "1800"))
     )
     context_limit = max(
-        2000, int(os.environ.get("GENERATION_CONTEXT_MAX_CHARS", "10000"))
+        2000, int(os.environ.get("GENERATION_CONTEXT_MAX_CHARS", "6000"))
     )
     batches = _section_batches(response_template_rules, batch_size=batch_size)
 
