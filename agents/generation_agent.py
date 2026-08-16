@@ -161,13 +161,12 @@ def generation_agent(state: dict) -> dict:
             f"content instructions, tables and formatting for sections: {section_names}",
             top_n=4,
         )
-        generation_evidence["section_batches"].append(
-            {
-                "sections": sections,
-                "tender_excerpts": tender_excerpts,
-                "response_template_excerpts": response_template_excerpts,
-            }
-        )
+        batch_evidence = {
+            "sections": sections,
+            "tender_excerpts": tender_excerpts,
+            "response_template_excerpts": response_template_excerpts,
+        }
+        generation_evidence["section_batches"].append(batch_evidence)
         prompt = GENERATION_PROMPT_TEMPLATE.format(
             batch_number=batch_number,
             batch_count=len(batches),
@@ -191,6 +190,7 @@ def generation_agent(state: dict) -> dict:
             ).strip()
             if not batch_draft:
                 raise ValueError("the model returned an empty section batch")
+            batch_evidence["draft"] = batch_draft
             draft_parts.append(batch_draft)
             logger.info(
                 "Generation attempt %d completed batch %d/%d (%s)",

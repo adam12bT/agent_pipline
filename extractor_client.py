@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import logging
 import os
+import random
 import time
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 import requests
@@ -32,9 +35,16 @@ class ExtractorClient:
         self.timeout_seconds = timeout_seconds or float(
             os.environ.get("EXTRACTOR_TIMEOUT_SECONDS", "900")
         )
-        self.max_retries = max(1, int(os.environ.get("EXTRACTOR_MAX_RETRIES", "3")))
+        self.max_retries = max(1, int(os.environ.get("EXTRACTOR_MAX_RETRIES", "6")))
         self.retry_backoff_seconds = max(
-            0.0, float(os.environ.get("EXTRACTOR_RETRY_BACKOFF_SECONDS", "1"))
+            0.0, float(os.environ.get("EXTRACTOR_RETRY_BACKOFF_SECONDS", "5"))
+        )
+        self.retry_max_seconds = max(
+            self.retry_backoff_seconds,
+            float(os.environ.get("EXTRACTOR_RETRY_MAX_SECONDS", "60")),
+        )
+        self.retry_jitter_seconds = max(
+            0.0, float(os.environ.get("EXTRACTOR_RETRY_JITTER_SECONDS", "1"))
         )
 
     def _headers(self) -> dict[str, str]:
@@ -56,12 +66,35 @@ class ExtractorClient:
                 return str(body["detail"])
         return response.text[:500] or response.reason or "unknown extractor error"
 
+    @staticmethod
+    def _retry_after_seconds(response: requests.Response) -> float | None:
+        value = response.headers.get("Retry-After")
+        if not value:
+            return None
+        try:
+            return max(0.0, float(value))
+        except ValueError:
+            try:
+                retry_at = parsedate_to_datetime(value)
+                if retry_at.tzinfo is None:
+                    retry_at = retry_at.replace(tzinfo=timezone.utc)
+                return max(
+                    0.0,
+                    (retry_at - datetime.now(timezone.utc)).total_seconds(),
+                )
+            except (TypeError, ValueError, OverflowError):
+                logger.warning(
+                    "Extractor returned an invalid Retry-After header: %r", value
+                )
+                return None
+
     def process_and_index(self, file_path: str, workspace_slug: str) -> dict:
         """Extract a file and index its structured content into a workspace."""
         url = f"{self.base_url}/v1/extract-and-index"
         last_error: Exception | None = None
 
         for attempt in range(self.max_retries):
+            response = None
             try:
                 # Reopen on every attempt; a consumed multipart stream cannot
                 # safely be reused after a network failure.
@@ -114,7 +147,16 @@ class ExtractorClient:
                 last_error = ExtractorServiceError(f"Extractor request failed: {exc}")
 
             if attempt + 1 < self.max_retries:
-                delay = self.retry_backoff_seconds * (2**attempt)
+                retry_after = (
+                    self._retry_after_seconds(response)
+                    if response is not None
+                    else None
+                )
+                delay = retry_after if retry_after is not None else min(
+                    self.retry_max_seconds,
+                    self.retry_backoff_seconds * (2**attempt),
+                )
+                delay += random.uniform(0.0, self.retry_jitter_seconds)
                 logger.warning(
                     "Extractor attempt %d/%d failed; retrying in %.1fs: %s",
                     attempt + 1,

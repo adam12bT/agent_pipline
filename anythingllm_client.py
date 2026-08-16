@@ -50,7 +50,7 @@ class AnythingLLMClient:
     def __init__(self, base_url: str = ANYTHINGLLM_BASE_URL):
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = _env_float("ANYTHINGLLM_TIMEOUT_SECONDS", 30.0)
-        self.max_retries = _env_int("ANYTHINGLLM_MAX_RETRIES", 5)
+        self.max_retries = _env_int("ANYTHINGLLM_MAX_RETRIES", 3)
         self.retry_base_seconds = _env_float("ANYTHINGLLM_RETRY_BASE_SECONDS", 2.0)
         self.retry_max_seconds = _env_float("ANYTHINGLLM_RETRY_MAX_SECONDS", 60.0)
         self.retry_jitter_seconds = _env_float("ANYTHINGLLM_RETRY_JITTER_SECONDS", 1.0)
@@ -79,6 +79,54 @@ class AnythingLLMClient:
             )
             raise
 
+    def _request(self, method: str, url: str, action: str, **kwargs) -> requests.Response:
+        """Send a retryable metadata/chat request without duplicating work.
+
+        Uploads are intentionally excluded because replaying a multipart upload
+        can duplicate indexing unless the remote endpoint supplies an idempotency
+        key. The extractor owns idempotent document indexing for pipeline files.
+        """
+        retryable_statuses = {408, 429, 500, 502, 503, 504}
+        last_error = None
+        kwargs.setdefault("headers", self._headers())
+        kwargs.setdefault("timeout", self.timeout_seconds)
+
+        for attempt in range(self.max_retries + 1):
+            response = None
+            try:
+                response = requests.request(method, url, **kwargs)
+                if response.status_code not in retryable_statuses:
+                    self._raise_for_status(response, action)
+                    return response
+                last_error = requests.HTTPError(
+                    f"HTTP {response.status_code}", response=response
+                )
+            except (requests.Timeout, requests.ConnectionError) as exc:
+                last_error = exc
+            except requests.RequestException:
+                raise
+
+            if attempt >= self.max_retries:
+                if response is not None:
+                    self._raise_for_status(response, action)
+                raise last_error
+
+            retry_after = (
+                response.headers.get("Retry-After") if response is not None else None
+            )
+            delay = self._retry_delay(attempt, retry_after)
+            logger.warning(
+                "%s failed%s; retrying in %.2fs (%d/%d)",
+                action,
+                f" with HTTP {response.status_code}" if response is not None else "",
+                delay,
+                attempt + 1,
+                self.max_retries,
+            )
+            time.sleep(delay)
+
+        raise RuntimeError(f"{action} retry loop exited unexpectedly")
+
     def get_workspace(self, slug: str) -> dict | None:
         """
         GET /v1/workspace/:slug — NOTE: despite the name, this returns a
@@ -87,12 +135,11 @@ class AnythingLLMClient:
         match dict, or None if not found.
         """
         logger.debug("GET workspace %r", slug)
-        resp = requests.get(
+        resp = self._request(
+            "GET",
             f"{self.base_url}/v1/workspace/{slug}",
-            headers=self._headers(),
-            timeout=30,
+            f"get_workspace({slug!r})",
         )
-        self._raise_for_status(resp, f"get_workspace({slug!r})")
         matches = resp.json().get("workspace", [])
         return matches[0] if matches else None
 
@@ -121,13 +168,12 @@ class AnythingLLMClient:
     def create_workspace(self, name: str) -> dict:
         """POST /v1/workspace/new -> returns the created workspace, including its slug."""
         logger.debug("POST create workspace %r", name)
-        resp = requests.post(
+        resp = self._request(
+            "POST",
             f"{self.base_url}/v1/workspace/new",
+            f"create_workspace({name!r})",
             json={"name": name},
-            headers=self._headers(),
-            timeout=30,
         )
-        self._raise_for_status(resp, f"create_workspace({name!r})")
         logger.info("Created workspace %r", name)
         return resp.json()
 
@@ -240,12 +286,12 @@ class AnythingLLMClient:
         Returns just the text response.
         """
         logger.debug("POST chat workspace=%r mode=%r (%d char message)", workspace_slug, mode, len(message))
-        resp = requests.post(
+        resp = self._request(
+            "POST",
             f"{self.base_url}/v1/workspace/{workspace_slug}/chat",
+            f"chat({workspace_slug!r}, mode={mode!r})",
             json={"message": message, "mode": mode, "sessionId": session_id},
-            headers=self._headers(),
             timeout=120,
         )
-        self._raise_for_status(resp, f"chat({workspace_slug!r}, mode={mode!r})")
         data = resp.json()
         return data.get("textResponse", "")

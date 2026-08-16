@@ -51,7 +51,7 @@ class GroqProvider(LLMProvider):
         self._base_url = (
             base_url or os.environ.get("GROQ_BASE_URL", DEFAULT_BASE_URL)
         ).rstrip("/")
-        self._max_retries = max(0, int(os.environ.get("GROQ_MAX_RETRIES", "5")))
+        self._max_retries = max(0, int(os.environ.get("GROQ_MAX_RETRIES", "1")))
         self._retry_base_seconds = max(
             0.1, float(os.environ.get("GROQ_RETRY_BASE_SECONDS", "2"))
         )
@@ -61,6 +61,9 @@ class GroqProvider(LLMProvider):
         )
         self._retry_jitter_seconds = max(
             0.0, float(os.environ.get("GROQ_RETRY_JITTER_SECONDS", "1"))
+        )
+        self._max_retry_after_seconds = max(
+            0.0, float(os.environ.get("GROQ_MAX_RETRY_AFTER_SECONDS", "60"))
         )
         self._timeout_seconds = max(
             1.0, float(os.environ.get("GROQ_TIMEOUT_SECONDS", "120"))
@@ -100,11 +103,19 @@ class GroqProvider(LLMProvider):
             logger.info("Waiting %.1fs for the shared Groq rate-limit window", delay)
             time.sleep(delay)
 
-    def _backoff_delay(self, attempt: int, response: requests.Response | None) -> float:
+    def _backoff_delay(
+        self, attempt: int, response: requests.Response | None
+    ) -> float | None:
         retry_after = self._retry_after_seconds(response) if response is not None else None
         if retry_after is not None:
-            # Retry-After is the provider's explicit minimum. Do not cap it
-            # with GROQ_RETRY_MAX_SECONDS or we could retry too early.
+            if retry_after > self._max_retry_after_seconds:
+                logger.warning(
+                    "Groq requested a %.1fs Retry-After window, above the %.1fs "
+                    "configured maximum; failing fast",
+                    retry_after,
+                    self._max_retry_after_seconds,
+                )
+                return None
             return retry_after + random.uniform(
                 0.0, self._retry_jitter_seconds
             )
@@ -138,6 +149,7 @@ class GroqProvider(LLMProvider):
         for attempt in range(total_attempts):
             response = None
             retry_delay = None
+            retry_allowed = True
             try:
                 # Serialize direct calls and respect any Retry-After window set
                 # by a previous parallel agent call.
@@ -177,13 +189,16 @@ class GroqProvider(LLMProvider):
                         # parallel caller cannot slip in before this retry
                         # window becomes visible.
                         retry_delay = self._backoff_delay(attempt, response)
-                        self._reserve_retry_window(retry_delay)
+                        if retry_delay is None:
+                            retry_allowed = False
+                        else:
+                            self._reserve_retry_window(retry_delay)
                     response.raise_for_status()
             except requests.HTTPError as exc:
                 last_error = exc
                 status = response.status_code if response is not None else None
                 retryable = status == 429 or status in {408, 500, 502, 503, 504}
-                if not retryable or attempt >= self._max_retries:
+                if not retryable or not retry_allowed or attempt >= self._max_retries:
                     break
             except (requests.Timeout, requests.ConnectionError) as exc:
                 last_error = exc
@@ -197,6 +212,8 @@ class GroqProvider(LLMProvider):
                 break
 
             delay = retry_delay or self._backoff_delay(attempt, response)
+            if delay is None:
+                break
             if retry_delay is None:
                 with self._request_gate:
                     self._reserve_retry_window(delay)

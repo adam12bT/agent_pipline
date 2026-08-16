@@ -13,6 +13,7 @@ restarts.
 """
 
 import logging
+import os
 import threading
 import time
 import traceback
@@ -35,6 +36,10 @@ _HIDDEN_STAGES = {"dispatch"}
 
 RUNS: dict[str, dict] = {}
 _LOCK = threading.Lock()
+_MAX_CONCURRENT_RUNS = max(
+    1, int(os.environ.get("PIPELINE_MAX_CONCURRENT_RUNS", "1"))
+)
+_RUN_SLOTS = threading.BoundedSemaphore(_MAX_CONCURRENT_RUNS)
 
 
 def _new_run_record(
@@ -83,7 +88,7 @@ def create_run(
     )
     with _LOCK:
         RUNS[run_id] = record
-    thread = threading.Thread(target=_execute_run, args=(run_id,), daemon=True)
+    thread = threading.Thread(target=_queued_execute_run, args=(run_id,), daemon=True)
     thread.start()
     return run_id
 
@@ -119,6 +124,12 @@ def _update_run(run_id: str, **fields):
         if run_id in RUNS:
             RUNS[run_id].update(fields)
             RUNS[run_id]["updated_at"] = time.time()
+
+
+def _queued_execute_run(run_id: str):
+    logger.info("Run %s: waiting for an available pipeline slot", run_id)
+    with _RUN_SLOTS:
+        _execute_run(run_id)
 
 
 def _execute_run(run_id: str):

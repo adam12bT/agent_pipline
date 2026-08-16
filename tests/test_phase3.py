@@ -6,12 +6,65 @@ from agents.graph import _route_after_generation
 from agents.quality_agent import (
     _check_section_order,
     _check_template_compliance,
+    _review_groups,
     _template_sections,
     quality_agent,
 )
 
 
 class ResponseTemplateQualityTests(unittest.TestCase):
+    def test_quality_failure_does_not_regenerate_by_default(self):
+        sections = ["Contexte", "Solution", "Planning"]
+        draft = "\n".join(
+            f"# {section}\n" + ("substantive content " * 60)
+            for section in sections
+        )
+        evaluator_result = {
+            "groundedness_score": 0.5,
+            "coherence_score": 0.9,
+            "unsupported_claims": [{"claim": "x", "reason": "unsupported"}],
+            "contradictions": [],
+            "coherence_issues": [],
+            "notes": [],
+        }
+
+        with patch(
+            "agents.quality_agent._evaluate_grounding_and_coherence",
+            return_value=evaluator_result,
+        ):
+            result = quality_agent(
+                {
+                    "is_verified": True,
+                    "security_passed": True,
+                    "draft_proposal": draft,
+                    "generation_attempts": 1,
+                    "requirements": {
+                        "response_template": {
+                            "required_sections": sections,
+                            "section_order": sections,
+                        }
+                    },
+                }
+            )
+
+        self.assertEqual(result["status"], "failed")
+
+    def test_quality_review_uses_at_most_two_matching_groups(self):
+        section_batches = [
+            {"sections": [f"S{index}"], "draft": f"draft {index}", "evidence": index}
+            for index in range(4)
+        ]
+        groups = _review_groups(
+            {"generation_evidence": {"section_batches": section_batches}},
+            "full draft",
+        )
+
+        self.assertEqual(len(groups), 2)
+        self.assertIn("draft 0", groups[0][1])
+        self.assertIn("draft 1", groups[0][1])
+        self.assertNotIn("draft 2", groups[0][1])
+        self.assertNotIn("draft", groups[0][0]["section_batches"][0])
+
     def test_quality_evaluator_error_does_not_retry_generation(self):
         draft = "\n".join(
             f"# {section}\n" + ("substantive content " * 30)

@@ -47,14 +47,22 @@ REQUIRED_SECTIONS = [
 ]
 
 MIN_WORD_COUNT = 150
-MAX_GENERATION_ATTEMPTS = 3
+MAX_GENERATION_ATTEMPTS = max(
+    1, int(os.environ.get("MAX_GENERATION_ATTEMPTS", "1"))
+)
 MIN_GROUNDEDNESS_SCORE = float(os.environ.get("QUALITY_MIN_GROUNDEDNESS", "0.75"))
 MIN_COHERENCE_SCORE = float(os.environ.get("QUALITY_MIN_COHERENCE", "0.75"))
 QUALITY_EVIDENCE_MAX_CHARS = max(
-    5000, int(os.environ.get("QUALITY_EVIDENCE_MAX_CHARS", "40000"))
+    5000, int(os.environ.get("QUALITY_EVIDENCE_MAX_CHARS", "12000"))
 )
 QUALITY_DRAFT_MAX_CHARS = max(
-    5000, int(os.environ.get("QUALITY_DRAFT_MAX_CHARS", "30000"))
+    5000, int(os.environ.get("QUALITY_DRAFT_MAX_CHARS", "14000"))
+)
+QUALITY_EVALUATION_BATCHES = max(
+    1, int(os.environ.get("QUALITY_EVALUATION_BATCHES", "2"))
+)
+QUALITY_MAX_TOKENS = max(
+    512, int(os.environ.get("QUALITY_MAX_TOKENS", "1200"))
 )
 QUALITY_LLM_MODEL = os.environ.get("QUALITY_LLM_MODEL", "").strip() or None
 LLM_GUARD_FAIL_CLOSED = os.environ.get(
@@ -208,54 +216,117 @@ def _extract_review_json(text: str) -> dict:
     return parsed
 
 
+def _empty_review(*, error: str | None = None) -> dict:
+    review = {
+        "groundedness_score": 0.0,
+        "coherence_score": 0.0,
+        "unsupported_claims": [],
+        "contradictions": [],
+        "coherence_issues": [],
+        "notes": [],
+    }
+    if error:
+        review["evaluation_error"] = error
+    return review
+
+
+def _review_groups(state: dict, draft: str) -> list[tuple[dict, str]]:
+    """Build a small fixed number of matching evidence/draft review groups."""
+    evidence = state.get("generation_evidence") or {}
+    section_batches = evidence.get("section_batches") or []
+    usable = [
+        batch
+        for batch in section_batches
+        if isinstance(batch, dict) and str(batch.get("draft", "")).strip()
+    ]
+    if not usable:
+        return [(evidence, draft)]
+
+    group_count = min(QUALITY_EVALUATION_BATCHES, len(usable))
+    groups = []
+    group_size = (len(usable) + group_count - 1) // group_count
+    for group_index in range(group_count):
+        start = group_index * group_size
+        selected = usable[start : start + group_size]
+        if not selected:
+            continue
+        group_evidence = {
+            "requirements": evidence.get("requirements", {}),
+            "research_summary": evidence.get("research_summary", ""),
+            "project_references": evidence.get("project_references", ""),
+            "cv_excerpts": evidence.get("cv_excerpts", ""),
+            "past_proposals": evidence.get("past_proposals", ""),
+            "section_batches": [
+                {key: value for key, value in batch.items() if key != "draft"}
+                for batch in selected
+            ],
+        }
+        group_draft = "\n\n".join(str(batch["draft"]) for batch in selected)
+        groups.append((group_evidence, group_draft))
+    return groups
+
+
+def _merge_reviews(reviews: list[dict]) -> dict:
+    merged = _empty_review()
+    merged["groundedness_score"] = min(
+        review["groundedness_score"] for review in reviews
+    )
+    merged["coherence_score"] = min(
+        review["coherence_score"] for review in reviews
+    )
+    for field in ("unsupported_claims", "contradictions", "coherence_issues", "notes"):
+        merged[field] = [
+            item for review in reviews for item in review.get(field, [])
+        ]
+    errors = [
+        review.get("evaluation_error")
+        for review in reviews
+        if review.get("evaluation_error")
+    ]
+    if errors:
+        merged["evaluation_error"] = "; ".join(errors)[:500]
+    merged["evaluation_batches"] = len(reviews)
+    return merged
+
+
 def _evaluate_grounding_and_coherence(state: dict, draft: str) -> dict:
     if not draft.strip():
-        return {
-            "groundedness_score": 0.0,
-            "coherence_score": 0.0,
-            "unsupported_claims": [],
-            "contradictions": [],
-            "coherence_issues": ["The generated proposal is empty."],
-            "notes": [],
-            "evaluation_error": "No draft was available for evaluation.",
-        }
+        review = _empty_review(error="No draft was available for evaluation.")
+        review["coherence_issues"] = ["The generated proposal is empty."]
+        return review
 
     evidence = state.get("generation_evidence") or {}
     if not evidence:
-        return {
-            "groundedness_score": 0.0,
-            "coherence_score": 0.0,
-            "unsupported_claims": [],
-            "contradictions": [],
-            "coherence_issues": ["Generation evidence was not preserved."],
-            "notes": [],
-            "evaluation_error": "Cannot evaluate grounding without generation evidence.",
-        }
-
-    evidence_text = json.dumps(evidence, ensure_ascii=False, default=str)
-    prompt = QUALITY_GROUNDING_PROMPT_TEMPLATE.format(
-        evidence=evidence_text[:QUALITY_EVIDENCE_MAX_CHARS],
-        draft=draft[:QUALITY_DRAFT_MAX_CHARS],
-    )
-    try:
-        response = get_provider().complete(
-            prompt,
-            temperature=0.0,
-            max_tokens=1800,
-            model=QUALITY_LLM_MODEL,
+        review = _empty_review(
+            error="Cannot evaluate grounding without generation evidence."
         )
-        return _extract_review_json(response)
-    except Exception as exc:
-        logger.exception("Grounding/coherence evaluation failed")
-        return {
-            "groundedness_score": 0.0,
-            "coherence_score": 0.0,
-            "unsupported_claims": [],
-            "contradictions": [],
-            "coherence_issues": [],
-            "notes": [],
-            "evaluation_error": str(exc)[:500],
-        }
+        review["coherence_issues"] = ["Generation evidence was not preserved."]
+        return review
+
+    reviews = []
+    for batch_number, (batch_evidence, batch_draft) in enumerate(
+        _review_groups(state, draft), start=1
+    ):
+        evidence_text = json.dumps(batch_evidence, ensure_ascii=False, default=str)
+        prompt = QUALITY_GROUNDING_PROMPT_TEMPLATE.format(
+            evidence=evidence_text[:QUALITY_EVIDENCE_MAX_CHARS],
+            draft=batch_draft[:QUALITY_DRAFT_MAX_CHARS],
+        )
+        try:
+            response = get_provider().complete(
+                prompt,
+                temperature=0.0,
+                max_tokens=QUALITY_MAX_TOKENS,
+                model=QUALITY_LLM_MODEL,
+            )
+            reviews.append(_extract_review_json(response))
+        except Exception as exc:
+            logger.exception(
+                "Grounding/coherence evaluation batch %d failed", batch_number
+            )
+            reviews.append(_empty_review(error=str(exc)[:500]))
+            break
+    return _merge_reviews(reviews)
 
 
 def quality_agent(state: dict) -> dict:
