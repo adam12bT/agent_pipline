@@ -1,5 +1,9 @@
 import unittest
+import os
+import tempfile
 from unittest.mock import patch
+
+from docx import Document
 
 from agents.generation_agent import (
     _fit_generation_prompt,
@@ -7,6 +11,10 @@ from agents.generation_agent import (
     _section_batches,
 )
 from agents.graph import _route_after_generation
+from agents.extraction_agent import (
+    _extract_template_sections,
+    _merge_template_outline,
+)
 from agents.quality_agent import (
     _check_section_order,
     _check_template_compliance,
@@ -17,6 +25,54 @@ from agents.quality_agent import (
 
 
 class ResponseTemplateQualityTests(unittest.TestCase):
+    def test_docx_heading_structure_recovers_complete_template_outline(self):
+        document = Document()
+        expected = [
+            "1. Introduction",
+            "2. Compréhension du besoin",
+            "3. Conformité aux exigences",
+            "4. Approche et méthodologie",
+            "5. Équipe et organisation",
+            "6. Calendrier du projet",
+            "7. Budget et tarification",
+            "8. Assurance qualité",
+            "9. Gestion des risques",
+            "10. Acceptation et garantie",
+            "11. Annexes",
+        ]
+        for heading in expected:
+            document.add_heading(heading, level=1)
+            document.add_paragraph("Instructions for this section.")
+        handle, path = tempfile.mkstemp(suffix=".docx")
+        os.close(handle)
+        try:
+            document.save(path)
+            self.assertEqual(_extract_template_sections(path), expected)
+        finally:
+            os.unlink(path)
+
+    def test_complete_local_outline_replaces_partial_rag_outline(self):
+        requirements = {
+            "response_template": {
+                "required_sections": ["2. Need", "3. Compliance"],
+                "section_order": ["2. Need", "3. Compliance"],
+                "instructions": ["Keep this instruction"],
+            }
+        }
+        complete = ["1. Introduction", "2. Need", "3. Compliance", "4. Annexes"]
+
+        merged = _merge_template_outline(requirements, complete)
+
+        self.assertEqual(merged["response_template"]["section_order"], complete)
+        self.assertEqual(
+            merged["response_template"]["instructions"],
+            ["Keep this instruction"],
+        )
+        self.assertEqual(
+            merged["response_template"]["outline_source"],
+            "local_document_structure",
+        )
+
     def test_generation_prompt_enforces_total_budget_without_cutting_instructions(self):
         huge = "French tender evidence and requirements. " * 1000
         prompt, fitted = _fit_generation_prompt(

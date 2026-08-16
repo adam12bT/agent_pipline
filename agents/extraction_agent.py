@@ -17,6 +17,7 @@ extraction.
 
 import json
 import logging
+import os
 import re
 
 from anythingllm_client import AnythingLLMClient
@@ -32,6 +33,107 @@ _RETRIEVAL_QUERY = (
     "SLA, submission deadline, project duration, budget, evaluation criteria, "
     "selection method"
 )
+
+_TOP_LEVEL_NUMBERED_HEADING = re.compile(
+    r"^\s*(?:section\s+)?(?P<number>\d{1,2})[.)]\s+(?P<title>\S.*)$",
+    re.IGNORECASE,
+)
+
+
+def _template_paragraphs(file_path: str) -> list[tuple[str, int | None]]:
+    """Read template paragraphs locally so RAG cannot omit outline headings."""
+    extension = os.path.splitext(file_path)[1].lower()
+    paragraphs: list[tuple[str, int | None]] = []
+
+    if extension == ".docx":
+        from docx import Document
+
+        document = Document(file_path)
+        for paragraph in document.paragraphs:
+            text = paragraph.text.strip()
+            if not text:
+                continue
+            style_name = (paragraph.style.name or "").strip()
+            match = re.match(r"heading\s+(\d+)", style_name, re.IGNORECASE)
+            level = int(match.group(1)) if match else None
+            paragraphs.append((text, level))
+        for table in document.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    for paragraph in cell.paragraphs:
+                        text = paragraph.text.strip()
+                        if text:
+                            paragraphs.append((text, None))
+        return paragraphs
+
+    if extension == ".pdf":
+        from pypdf import PdfReader
+
+        for page in PdfReader(file_path).pages:
+            for line in (page.extract_text() or "").splitlines():
+                text = line.strip()
+                if text:
+                    paragraphs.append((text, None))
+    return paragraphs
+
+
+def _extract_template_sections(file_path: str) -> list[str]:
+    """Recover the complete ordered outline directly from DOCX/PDF structure."""
+    try:
+        paragraphs = _template_paragraphs(file_path)
+    except Exception as exc:
+        logger.warning("Could not inspect response template structure: %s", exc)
+        return []
+
+    styled = [(text, level) for text, level in paragraphs if level is not None]
+    if styled:
+        top_level = min(level for _, level in styled)
+        headings = [text for text, level in styled if level == top_level]
+        headings = list(dict.fromkeys(headings))
+        if len(headings) >= 3:
+            return headings
+
+    numbered: list[tuple[int, str]] = []
+    seen_numbers = set()
+    for text, _ in paragraphs:
+        match = _TOP_LEVEL_NUMBERED_HEADING.match(text)
+        if not match or len(text) > 180:
+            continue
+        number = int(match.group("number"))
+        if number in seen_numbers:
+            continue
+        seen_numbers.add(number)
+        numbered.append((number, text))
+
+    if len(numbered) < 3:
+        return []
+    numbers = [number for number, _ in numbered]
+    increasing = numbers == sorted(numbers)
+    coverage = len(numbers) / max(numbers)
+    if increasing and numbers[0] == 1 and coverage >= 0.6:
+        return [text for _, text in numbered]
+    return []
+
+
+def _merge_template_outline(requirements: dict, sections: list[str]) -> dict:
+    """Prefer a fuller deterministic outline over incomplete RAG extraction."""
+    if not sections or not isinstance(requirements, dict):
+        return requirements
+    template = requirements.get("response_template")
+    if not isinstance(template, dict):
+        template = {}
+        requirements["response_template"] = template
+    extracted = template.get("section_order") or template.get("required_sections") or []
+    if len(sections) > len(extracted):
+        template["required_sections"] = sections
+        template["section_order"] = sections
+        template["outline_source"] = "local_document_structure"
+        logger.info(
+            "Recovered %d response-template sections locally (LLM/RAG found %d)",
+            len(sections),
+            len(extracted),
+        )
+    return requirements
 
 
 def _repair_truncated_json(text: str) -> str:
@@ -139,6 +241,9 @@ def extraction_agent(state: dict) -> dict:
     client = AnythingLLMClient()
     workspace_slug = state["workspace_slug"]
     template_workspace_slug = state["response_template_workspace_slug"]
+    deterministic_sections = _extract_template_sections(
+        state["response_template_file_path"]
+    )
 
     try:
         context = get_relevant_chunks(client, workspace_slug, _RETRIEVAL_QUERY, top_n=8)
@@ -156,6 +261,7 @@ def extraction_agent(state: dict) -> dict:
         )
         response_text = get_provider().complete(prompt)
         requirements = _extract_json(response_text)
+        requirements = _merge_template_outline(requirements, deterministic_sections)
     except Exception as e:
         error_msg = f"Extraction agent failed: {e}"
         logger.error("Extraction failed for workspace %r: %s", workspace_slug, e, exc_info=True)
