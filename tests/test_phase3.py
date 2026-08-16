@@ -1,7 +1,7 @@
 import unittest
 import os
 import tempfile
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from docx import Document
 
@@ -18,6 +18,7 @@ from agents.extraction_agent import (
 from agents.quality_agent import (
     _check_section_order,
     _check_template_compliance,
+    _evaluate_grounding_and_coherence,
     _extract_review_json,
     _review_groups,
     _template_sections,
@@ -26,6 +27,34 @@ from agents.quality_agent import (
 
 
 class ResponseTemplateQualityTests(unittest.TestCase):
+    def test_quality_evaluator_falls_back_when_groq_rejects_json_mode(self):
+        provider = Mock()
+        provider.complete.side_effect = [
+            RuntimeError(
+                "Groq completion failed: HTTP 400: "
+                '{"error":{"code":"json_validate_failed"}}'
+            ),
+            """{
+              "groundedness_score": 0.84,
+              "coherence_score": 0.88,
+              "unsupported_claims": [],
+              "contradictions": [],
+              "coherence_issues": [],
+              "notes": []
+            }""",
+        ]
+
+        with patch("agents.quality_agent.get_provider", return_value=provider):
+            review = _evaluate_grounding_and_coherence(
+                {"generation_evidence": {"requirements": {"scope": "Test"}}},
+                "# Proposal\nGrounded draft content.",
+            )
+
+        self.assertEqual(provider.complete.call_count, 2)
+        self.assertEqual(review["groundedness_score"], 0.84)
+        self.assertEqual(review["coherence_score"], 0.88)
+        self.assertNotIn("evaluation_error", review)
+
     def test_quality_review_repairs_truncated_json_with_trailing_comma(self):
         malformed = """```json
         {

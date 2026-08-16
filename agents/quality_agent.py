@@ -314,6 +314,7 @@ def _evaluate_grounding_and_coherence(state: dict, draft: str) -> dict:
         review["coherence_issues"] = ["Generation evidence was not preserved."]
         return review
 
+    provider = get_provider()
     reviews = []
     for batch_number, (batch_evidence, batch_draft) in enumerate(
         _review_groups(state, draft), start=1
@@ -324,13 +325,30 @@ def _evaluate_grounding_and_coherence(state: dict, draft: str) -> dict:
             draft=batch_draft[:QUALITY_DRAFT_MAX_CHARS],
         )
         try:
-            response = get_provider().complete(
-                prompt,
-                temperature=0.0,
-                max_tokens=QUALITY_MAX_TOKENS,
-                model=QUALITY_LLM_MODEL,
-                response_format={"type": "json_object"},
-            )
+            completion_options = {
+                "temperature": 0.0,
+                "max_tokens": QUALITY_MAX_TOKENS,
+                "model": QUALITY_LLM_MODEL,
+            }
+            try:
+                response = provider.complete(
+                    prompt,
+                    **completion_options,
+                    response_format={"type": "json_object"},
+                )
+            except Exception as exc:
+                # Groq can reject a model-generated response in strict JSON
+                # mode before returning any text. There is then nothing for
+                # our local JSON repair step to process. Retry exactly once
+                # without strict mode and repair/validate the returned text.
+                if "json_validate_failed" not in str(exc).casefold():
+                    raise
+                logger.warning(
+                    "Groq strict JSON validation failed for quality batch %d; "
+                    "retrying once in text mode",
+                    batch_number,
+                )
+                response = provider.complete(prompt, **completion_options)
             reviews.append(_extract_review_json(response))
         except Exception as exc:
             logger.exception(
