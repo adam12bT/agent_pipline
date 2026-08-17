@@ -9,6 +9,47 @@ from providers.groq_provider import GroqProvider
 
 
 class GroqProviderRetryTests(unittest.TestCase):
+    def test_429_uses_retry_delay_from_error_body_when_header_is_missing(self):
+        limited = Mock()
+        limited.ok = False
+        limited.status_code = 429
+        limited.headers = {}
+        limited.text = (
+            '{"error":{"message":"Rate limit reached. '
+            'Please try again in 1.0725s."}}'
+        )
+        limited.raise_for_status.side_effect = requests.HTTPError("429")
+
+        success = Mock()
+        success.ok = True
+        success.status_code = 200
+        success.json.return_value = {
+            "choices": [{"message": {"content": "ok"}}]
+        }
+
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "GROQ_API_KEY": "test-key",
+                    "GROQ_MAX_RETRIES": "1",
+                    "GROQ_RETRY_JITTER_SECONDS": "0",
+                    "GROQ_MIN_INTERVAL_SECONDS": "0",
+                },
+                clear=False,
+            ),
+            patch(
+                "providers.groq_provider.requests.post",
+                side_effect=[limited, success],
+            ) as post,
+            patch("providers.groq_provider.time.sleep") as sleep,
+        ):
+            provider = GroqProvider()
+            self.assertEqual(provider.complete("hello"), "ok")
+
+        self.assertEqual(post.call_count, 2)
+        self.assertTrue(sleep.called)
+
     def test_success_reserves_minimum_interval_before_next_request(self):
         response = Mock()
         response.ok = True

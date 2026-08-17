@@ -22,6 +22,7 @@ Env vars:
 import logging
 import os
 import random
+import re
 import threading
 import time
 from datetime import datetime, timezone
@@ -85,7 +86,15 @@ class GroqProvider(LLMProvider):
     def _retry_after_seconds(response: requests.Response) -> float | None:
         value = response.headers.get("Retry-After")
         if not value:
-            return None
+            # Groq sometimes provides the precise delay only in the JSON
+            # error message (for example, "Please try again in 1.0725s").
+            # Recover it so a short TPM window is retried instead of failed.
+            match = re.search(
+                r"try again in\s+([0-9]+(?:\.[0-9]+)?)s",
+                response.text or "",
+                re.IGNORECASE,
+            )
+            return max(0.0, float(match.group(1))) if match else None
         try:
             return max(0.0, float(value))
         except ValueError:

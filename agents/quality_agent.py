@@ -54,17 +54,20 @@ MAX_GENERATION_ATTEMPTS = max(
 )
 MIN_GROUNDEDNESS_SCORE = float(os.environ.get("QUALITY_MIN_GROUNDEDNESS", "0.75"))
 MIN_COHERENCE_SCORE = float(os.environ.get("QUALITY_MIN_COHERENCE", "0.75"))
-QUALITY_EVIDENCE_MAX_CHARS = max(
-    5000, int(os.environ.get("QUALITY_EVIDENCE_MAX_CHARS", "8000"))
+QUALITY_EVIDENCE_MAX_CHARS = min(
+    6000,
+    max(3000, int(os.environ.get("QUALITY_EVIDENCE_MAX_CHARS", "6000"))),
 )
-QUALITY_DRAFT_MAX_CHARS = max(
-    5000, int(os.environ.get("QUALITY_DRAFT_MAX_CHARS", "8000"))
+QUALITY_DRAFT_MAX_CHARS = min(
+    6000,
+    max(3000, int(os.environ.get("QUALITY_DRAFT_MAX_CHARS", "6000"))),
 )
 QUALITY_EVALUATION_BATCHES = max(
     1, int(os.environ.get("QUALITY_EVALUATION_BATCHES", "1"))
 )
-QUALITY_MAX_TOKENS = max(
-    512, int(os.environ.get("QUALITY_MAX_TOKENS", "700"))
+QUALITY_MAX_TOKENS = min(
+    512,
+    max(384, int(os.environ.get("QUALITY_MAX_TOKENS", "512"))),
 )
 QUALITY_LLM_MODEL = os.environ.get("QUALITY_LLM_MODEL", "").strip() or None
 LLM_GUARD_FAIL_CLOSED = os.environ.get(
@@ -393,7 +396,7 @@ def quality_agent(state: dict) -> dict:
         notes.append(f"Template sections are out of order: {out_of_order_sections}")
     if quality_findings:
         notes.append(f"LLM Guard flagged: {quality_findings}")
-    if grounding_failed:
+    if grounding_failed and not evaluator_error:
         notes.append(
             "Grounding/coherence review failed: "
             f"groundedness={groundedness_score:.2f} "
@@ -427,6 +430,7 @@ def quality_agent(state: dict) -> dict:
         "required_sections": required_sections,
         "quality_findings": quality_findings,
         "grounding_review": grounding_review,
+        "evaluation_available": not evaluator_error,
         "groundedness_threshold": MIN_GROUNDEDNESS_SCORE,
         "coherence_threshold": MIN_COHERENCE_SCORE,
         "notes": notes,

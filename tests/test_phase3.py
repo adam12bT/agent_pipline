@@ -235,6 +235,13 @@ class ResponseTemplateQualityTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "failed")
         self.assertFalse(result["quality_passed"])
+        self.assertFalse(result["quality_report"]["evaluation_available"])
+        self.assertFalse(
+            any(
+                "groundedness=0.00" in note
+                for note in result["quality_report"]["notes"]
+            )
+        )
         self.assertTrue(
             any("without regenerating" in note for note in result["quality_report"]["notes"])
         )
