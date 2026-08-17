@@ -95,6 +95,8 @@ def _get_scope_from_tender(workspace_slug: str) -> str:
         response_text = get_provider().complete(
             prompt,
             request_label="research.scope",
+            reasoning_effort="low",
+            include_reasoning=False,
         )
         scope = response_text.strip().strip('"')
         return scope if scope else _FALLBACK_SCOPE
@@ -123,6 +125,8 @@ def _get_budget_from_tender(workspace_slug: str) -> str:
         response_text = get_provider().complete(
             prompt,
             request_label="research.budget",
+            reasoning_effort="low",
+            include_reasoning=False,
         )
         budget = response_text.strip().strip('"')
         return budget if budget else _FALLBACK_BUDGET

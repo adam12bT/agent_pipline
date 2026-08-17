@@ -169,6 +169,8 @@ class GroqProvider(LLMProvider):
         request_model = _MODEL_ALIASES.get(configured_model, configured_model)
         response_format = kwargs.get("response_format")
         request_label = str(kwargs.get("request_label") or "unlabelled")
+        reasoning_effort = kwargs.get("reasoning_effort")
+        include_reasoning = kwargs.get("include_reasoning")
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -205,6 +207,11 @@ class GroqProvider(LLMProvider):
                     }
                     if response_format is not None:
                         payload["response_format"] = response_format
+                    is_gpt_oss = request_model.startswith("openai/gpt-oss-")
+                    if is_gpt_oss and reasoning_effort is not None:
+                        payload["reasoning_effort"] = reasoning_effort
+                    if is_gpt_oss and include_reasoning is not None:
+                        payload["include_reasoning"] = include_reasoning
                     response = requests.post(
                         f"{self._base_url}/chat/completions",
                         headers={"Authorization": f"Bearer {self._api_key}"},
@@ -215,19 +222,32 @@ class GroqProvider(LLMProvider):
                     if response.ok:
                         data = response.json()
                         self._reserve_retry_window(self._min_interval_seconds)
-                        content = data["choices"][0]["message"].get("content")
+                        choice = data["choices"][0]
+                        message = choice["message"]
+                        content = message.get("content")
                         if not content:
-                            raise ValueError("Groq returned an empty completion")
+                            raise ValueError(
+                                "Groq returned an empty completion "
+                                f"(finish_reason={choice.get('finish_reason')!r}, "
+                                f"reasoning_chars={len(message.get('reasoning') or '')}, "
+                                f"max_output_tokens={max_tokens}); the reasoning model "
+                                "likely exhausted its completion allowance before "
+                                "writing the answer"
+                            )
                         usage = data.get("usage") or {}
+                        completion_details = usage.get("completion_tokens_details") or {}
                         logger.info(
                             "Groq success label=%s model=%s prompt_tokens=%s "
-                            "completion_tokens=%s total_tokens=%s output_chars=%d "
+                            "completion_tokens=%s reasoning_tokens=%s total_tokens=%s "
+                            "finish_reason=%s output_chars=%d "
                             "remaining_tpm=%s reset_tpm=%s",
                             request_label,
                             request_model,
                             usage.get("prompt_tokens", "unknown"),
                             usage.get("completion_tokens", "unknown"),
+                            completion_details.get("reasoning_tokens", "unknown"),
                             usage.get("total_tokens", "unknown"),
+                            choice.get("finish_reason", "unknown"),
                             len(content),
                             response.headers.get(
                                 "x-ratelimit-remaining-tokens", "unknown"
@@ -310,7 +330,7 @@ class GroqProvider(LLMProvider):
             )
 
         detail = str(last_error) if last_error else "unknown error"
-        if response is not None and response.text:
+        if response is not None and not response.ok and response.text:
             detail = f"HTTP {response.status_code}: {response.text[:500]}"
         logger.error(
             "Groq completion failed label=%s after %d attempt(s) (model=%r): %s",

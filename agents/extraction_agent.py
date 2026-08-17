@@ -262,6 +262,8 @@ def extraction_agent(state: dict) -> dict:
         response_text = get_provider().complete(
             prompt,
             request_label="extraction.requirements",
+            reasoning_effort="low",
+            include_reasoning=False,
         )
         requirements = _extract_json(response_text)
         requirements = _merge_template_outline(requirements, deterministic_sections)

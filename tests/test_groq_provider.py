@@ -106,16 +106,25 @@ class GroqProviderRetryTests(unittest.TestCase):
             self.assertEqual(
                 provider.complete(
                     "Return JSON",
+                    model="gpt-oss-120b",
                     response_format={"type": "json_object"},
+                    reasoning_effort="low",
+                    include_reasoning=False,
                 ),
                 "ok",
             )
 
         self.assertEqual(provider._next_request_at, 130.0)
         self.assertEqual(
+            post.call_args.kwargs["json"]["model"],
+            "openai/gpt-oss-120b",
+        )
+        self.assertEqual(
             post.call_args.kwargs["json"]["response_format"],
             {"type": "json_object"},
         )
+        self.assertEqual(post.call_args.kwargs["json"]["reasoning_effort"], "low")
+        self.assertFalse(post.call_args.kwargs["json"]["include_reasoning"])
 
     def test_bare_gpt_oss_name_is_translated_for_groq(self):
         response = Mock()

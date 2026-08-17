@@ -66,8 +66,8 @@ QUALITY_EVALUATION_BATCHES = max(
     1, int(os.environ.get("QUALITY_EVALUATION_BATCHES", "1"))
 )
 QUALITY_MAX_TOKENS = min(
-    512,
-    max(384, int(os.environ.get("QUALITY_MAX_TOKENS", "512"))),
+    700,
+    max(512, int(os.environ.get("QUALITY_MAX_TOKENS", "700"))),
 )
 QUALITY_LLM_MODEL = os.environ.get("QUALITY_LLM_MODEL", "").strip() or None
 LLM_GUARD_FAIL_CLOSED = os.environ.get(
@@ -332,6 +332,8 @@ def _evaluate_grounding_and_coherence(state: dict, draft: str) -> dict:
                 "temperature": 0.0,
                 "max_tokens": QUALITY_MAX_TOKENS,
                 "model": QUALITY_LLM_MODEL,
+                "reasoning_effort": "low",
+                "include_reasoning": False,
             }
             try:
                 response = provider.complete(
