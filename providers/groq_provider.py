@@ -37,6 +37,10 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "llama-3.3-70b-versatile"
 DEFAULT_BASE_URL = "https://api.groq.com/openai/v1"
+_MODEL_ALIASES = {
+    "gpt-oss-120b": "openai/gpt-oss-120b",
+    "gpt-oss-20b": "openai/gpt-oss-20b",
+}
 
 
 class GroqProvider(LLMProvider):
@@ -150,7 +154,8 @@ class GroqProvider(LLMProvider):
         max_tokens: int = 4096,
         **kwargs,
     ) -> str:
-        request_model = kwargs.get("model") or self._model
+        configured_model = kwargs.get("model") or self._model
+        request_model = _MODEL_ALIASES.get(configured_model, configured_model)
         response_format = kwargs.get("response_format")
         messages = []
         if system:

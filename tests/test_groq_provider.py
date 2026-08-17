@@ -87,6 +87,31 @@ class GroqProviderRetryTests(unittest.TestCase):
             {"type": "json_object"},
         )
 
+    def test_bare_gpt_oss_name_is_translated_for_groq(self):
+        response = Mock()
+        response.ok = True
+        response.status_code = 200
+        response.json.return_value = {
+            "choices": [{"message": {"content": "ok"}}]
+        }
+
+        with (
+            patch.dict(
+                os.environ,
+                {"GROQ_API_KEY": "test-key", "GROQ_MIN_INTERVAL_SECONDS": "0"},
+                clear=False,
+            ),
+            patch(
+                "providers.groq_provider.requests.post", return_value=response
+            ) as post,
+        ):
+            GroqProvider().complete("hello", model="gpt-oss-120b")
+
+        self.assertEqual(
+            post.call_args.kwargs["json"]["model"],
+            "openai/gpt-oss-120b",
+        )
+
     def test_long_retry_after_fails_without_sleeping_or_retrying(self):
         response = Mock()
         response.ok = False

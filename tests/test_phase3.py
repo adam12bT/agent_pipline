@@ -7,6 +7,7 @@ from docx import Document
 
 from agents.generation_agent import (
     _fit_generation_prompt,
+    _normalize_batch_headings,
     _proposal_structure,
     _section_batches,
 )
@@ -27,6 +28,16 @@ from agents.quality_agent import (
 
 
 class ResponseTemplateQualityTests(unittest.TestCase):
+    def test_bilingual_short_heading_is_restored_to_exact_template_title(self):
+        expected = "5. Plan de travail et calendrier / Work Plan and Timeline"
+        draft, unmatched = _normalize_batch_headings(
+            "## 5. Plan de travail et calendrier\nContenu détaillé.",
+            [expected],
+        )
+
+        self.assertIn(f"## {expected}", draft)
+        self.assertEqual(unmatched, [])
+
     def test_quality_evaluator_falls_back_when_groq_rejects_json_mode(self):
         provider = Mock()
         provider.complete.side_effect = [

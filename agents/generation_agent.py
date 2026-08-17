@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 
 from anythingllm_client import AnythingLLMClient
 from company_knowledge import (
@@ -75,6 +76,56 @@ def _proposal_structure(
         lines.extend(f"- {item}" for item in formatting if str(item).strip())
 
     return "\n".join(lines)
+
+
+def _canonical_heading(value: str) -> str:
+    heading = str(value).strip().casefold()
+    heading = re.sub(r"^\s{0,3}#{1,6}\s*", "", heading)
+    heading = re.sub(r"[*_`]", "", heading)
+    heading = re.sub(r"^\s*(?:section\s+)?\d+(?:\.\d+)*[.)\-:]?\s*", "", heading)
+    return re.sub(r"\s+", " ", heading).strip(" :-–—")
+
+
+def _heading_aliases(section: str) -> set[str]:
+    """Return full and bilingual-half aliases for one template heading."""
+    aliases = {_canonical_heading(section)}
+    aliases.update(
+        _canonical_heading(part)
+        for part in str(section).split("/")
+        if _canonical_heading(part)
+    )
+    return aliases
+
+
+def _normalize_batch_headings(draft: str, sections: list[str]) -> tuple[str, list[str]]:
+    """Restore exact client titles when the model shortens bilingual headings.
+
+    Models commonly emit only the French or English half of a bilingual title.
+    The content is still the requested section, so replace that Markdown heading
+    with the exact client title. Truly absent sections are returned unchanged and
+    remain visible to the quality gate instead of being hidden by a placeholder.
+    """
+    lines = draft.splitlines()
+    unmatched = []
+    used_lines: set[int] = set()
+    for section in sections:
+        aliases = _heading_aliases(section)
+        matched_line = next(
+            (
+                index
+                for index, line in enumerate(lines)
+                if index not in used_lines
+                and re.match(r"^\s{0,3}#{1,6}\s+", line)
+                and _canonical_heading(line) in aliases
+            ),
+            None,
+        )
+        if matched_line is None:
+            unmatched.append(section)
+            continue
+        lines[matched_line] = f"## {section}"
+        used_lines.add(matched_line)
+    return "\n".join(lines), unmatched
 
 
 def _clip(value, limit: int) -> str:
@@ -279,6 +330,16 @@ def generation_agent(state: dict) -> dict:
             ).strip()
             if not batch_draft:
                 raise ValueError("the model returned an empty section batch")
+            batch_draft, unmatched_headings = _normalize_batch_headings(
+                batch_draft, sections
+            )
+            if unmatched_headings:
+                logger.warning(
+                    "Generation batch %d/%d omitted template headings: %s",
+                    batch_number,
+                    len(batches),
+                    unmatched_headings,
+                )
             batch_evidence["draft"] = batch_draft
             draft_parts.append(batch_draft)
             logger.info(
