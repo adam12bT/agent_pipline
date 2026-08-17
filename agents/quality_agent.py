@@ -338,6 +338,7 @@ def _evaluate_grounding_and_coherence(state: dict, draft: str) -> dict:
                     prompt,
                     **completion_options,
                     response_format={"type": "json_object"},
+                    request_label=f"quality.batch_{batch_number}",
                 )
             except Exception as exc:
                 # Groq can reject a model-generated response in strict JSON
@@ -351,7 +352,11 @@ def _evaluate_grounding_and_coherence(state: dict, draft: str) -> dict:
                     "retrying once in text mode",
                     batch_number,
                 )
-                response = provider.complete(prompt, **completion_options)
+                response = provider.complete(
+                    prompt,
+                    **completion_options,
+                    request_label=f"quality.batch_{batch_number}.json_fallback",
+                )
             reviews.append(_extract_review_json(response))
         except Exception as exc:
             logger.exception(

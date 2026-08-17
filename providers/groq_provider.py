@@ -8,13 +8,15 @@ The repo already depends on GROQ_API_KEY for gpt-researcher (see
 chat completions outside of gpt-researcher.
 
 Env vars:
-    GROQ_API_KEY   required
+    PIPELINE_GROQ_API_KEY preferred for direct pipeline calls
+    GROQ_API_KEY          backward-compatible fallback
     GROQ_MODEL     optional, default 'llama-3.3-70b-versatile'
     GROQ_BASE_URL  optional, default 'https://api.groq.com/openai/v1'
     GROQ_MAX_RETRIES                  retry attempts after the first request
     GROQ_RETRY_BASE_SECONDS           exponential-backoff starting delay
     GROQ_RETRY_MAX_SECONDS            maximum delay between attempts
     GROQ_RETRY_JITTER_SECONDS         random jitter added to retry delays
+    GROQ_RETRY_SAFETY_SECONDS         extra wait after server Retry-After
     GROQ_MIN_INTERVAL_SECONDS         minimum delay between successful requests
     GROQ_TIMEOUT_SECONDS              HTTP request timeout
 """
@@ -50,9 +52,15 @@ class GroqProvider(LLMProvider):
         model: Optional[str] = None,
         base_url: Optional[str] = None,
     ):
-        self._api_key = api_key or os.environ.get("GROQ_API_KEY")
+        self._api_key = (
+            api_key
+            or os.environ.get("PIPELINE_GROQ_API_KEY")
+            or os.environ.get("GROQ_API_KEY")
+        )
         if not self._api_key:
-            raise LLMProviderError("GROQ_API_KEY is not set.")
+            raise LLMProviderError(
+                "PIPELINE_GROQ_API_KEY (or legacy GROQ_API_KEY) is not set."
+            )
         self._model = model or os.environ.get("GROQ_MODEL", DEFAULT_MODEL)
         self._base_url = (
             base_url or os.environ.get("GROQ_BASE_URL", DEFAULT_BASE_URL)
@@ -67,6 +75,9 @@ class GroqProvider(LLMProvider):
         )
         self._retry_jitter_seconds = max(
             0.0, float(os.environ.get("GROQ_RETRY_JITTER_SECONDS", "1"))
+        )
+        self._retry_safety_seconds = max(
+            0.0, float(os.environ.get("GROQ_RETRY_SAFETY_SECONDS", "5"))
         )
         self._max_retry_after_seconds = max(
             0.0, float(os.environ.get("GROQ_MAX_RETRY_AFTER_SECONDS", "60"))
@@ -133,7 +144,7 @@ class GroqProvider(LLMProvider):
                     self._max_retry_after_seconds,
                 )
                 return None
-            return retry_after + random.uniform(
+            return retry_after + self._retry_safety_seconds + random.uniform(
                 0.0, self._retry_jitter_seconds
             )
         base_delay = min(
@@ -157,6 +168,7 @@ class GroqProvider(LLMProvider):
         configured_model = kwargs.get("model") or self._model
         request_model = _MODEL_ALIASES.get(configured_model, configured_model)
         response_format = kwargs.get("response_format")
+        request_label = str(kwargs.get("request_label") or "unlabelled")
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -174,12 +186,16 @@ class GroqProvider(LLMProvider):
                 # by a previous parallel agent call.
                 with self._request_gate:
                     self._wait_for_retry_window()
-                    logger.debug(
-                        "POST Groq chat/completions model=%r attempt=%d/%d (%d char prompt)",
+                    logger.info(
+                        "Groq request label=%s model=%s attempt=%d/%d "
+                        "prompt_chars=%d estimated_input_tokens=%d max_output_tokens=%d",
+                        request_label,
                         request_model,
                         attempt + 1,
                         total_attempts,
                         len(prompt),
+                        max(1, len(prompt) // 4),
+                        max_tokens,
                     )
                     payload = {
                         "model": request_model,
@@ -202,7 +218,46 @@ class GroqProvider(LLMProvider):
                         content = data["choices"][0]["message"].get("content")
                         if not content:
                             raise ValueError("Groq returned an empty completion")
+                        usage = data.get("usage") or {}
+                        logger.info(
+                            "Groq success label=%s model=%s prompt_tokens=%s "
+                            "completion_tokens=%s total_tokens=%s output_chars=%d "
+                            "remaining_tpm=%s reset_tpm=%s",
+                            request_label,
+                            request_model,
+                            usage.get("prompt_tokens", "unknown"),
+                            usage.get("completion_tokens", "unknown"),
+                            usage.get("total_tokens", "unknown"),
+                            len(content),
+                            response.headers.get(
+                                "x-ratelimit-remaining-tokens", "unknown"
+                            ),
+                            response.headers.get("x-ratelimit-reset-tokens", "unknown"),
+                        )
                         return content
+
+                    if response.status_code == 429:
+                        try:
+                            error_message = response.json().get("error", {}).get(
+                                "message", response.text
+                            )
+                        except (TypeError, ValueError):
+                            error_message = response.text
+                        logger.warning(
+                            "Groq 429 label=%s model=%s prompt_chars=%d "
+                            "max_output_tokens=%d retry_after=%s remaining_tpm=%s "
+                            "reset_tpm=%s error=%s",
+                            request_label,
+                            request_model,
+                            len(prompt),
+                            max_tokens,
+                            response.headers.get("Retry-After", "body/backoff"),
+                            response.headers.get(
+                                "x-ratelimit-remaining-tokens", "unknown"
+                            ),
+                            response.headers.get("x-ratelimit-reset-tokens", "unknown"),
+                            str(error_message)[:500],
+                        )
 
                     if (
                         (
@@ -244,7 +299,9 @@ class GroqProvider(LLMProvider):
                 with self._request_gate:
                     self._reserve_retry_window(delay)
             logger.warning(
-                "Groq completion attempt %d/%d failed%s; retrying in %.1fs: %s",
+                "Groq completion label=%s attempt %d/%d failed%s; "
+                "retrying in %.1fs: %s",
+                request_label,
                 attempt + 1,
                 total_attempts,
                 f" with HTTP {response.status_code}" if response is not None else "",
@@ -256,7 +313,8 @@ class GroqProvider(LLMProvider):
         if response is not None and response.text:
             detail = f"HTTP {response.status_code}: {response.text[:500]}"
         logger.error(
-            "Groq completion failed after %d attempt(s) (model=%r): %s",
+            "Groq completion failed label=%s after %d attempt(s) (model=%r): %s",
+            request_label,
             min(total_attempts, attempt + 1),
             request_model,
             detail,

@@ -9,6 +9,36 @@ from providers.groq_provider import GroqProvider
 
 
 class GroqProviderRetryTests(unittest.TestCase):
+    def test_pipeline_key_is_preferred_over_legacy_key(self):
+        response = Mock()
+        response.ok = True
+        response.status_code = 200
+        response.headers = {}
+        response.json.return_value = {
+            "choices": [{"message": {"content": "ok"}}]
+        }
+
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "PIPELINE_GROQ_API_KEY": "pipeline-key",
+                    "GROQ_API_KEY": "legacy-or-research-key",
+                    "GROQ_MIN_INTERVAL_SECONDS": "0",
+                },
+                clear=True,
+            ),
+            patch(
+                "providers.groq_provider.requests.post", return_value=response
+            ) as post,
+        ):
+            self.assertEqual(GroqProvider().complete("hello"), "ok")
+
+        self.assertEqual(
+            post.call_args.kwargs["headers"]["Authorization"],
+            "Bearer pipeline-key",
+        )
+
     def test_429_uses_retry_delay_from_error_body_when_header_is_missing(self):
         limited = Mock()
         limited.ok = False

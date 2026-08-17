@@ -259,7 +259,10 @@ def extraction_agent(state: dict) -> dict:
             f"RESPONSE TEMPLATE EXCERPTS:\n\n{template_context}\n\n"
             f"{EXTRACTION_PROMPT}"
         )
-        response_text = get_provider().complete(prompt)
+        response_text = get_provider().complete(
+            prompt,
+            request_label="extraction.requirements",
+        )
         requirements = _extract_json(response_text)
         requirements = _merge_template_outline(requirements, deterministic_sections)
     except Exception as e:

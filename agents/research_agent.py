@@ -60,6 +60,23 @@ logger = logging.getLogger(__name__)
 _EXPECTED_ENV_VARS = ["TAVILY_API_KEY"]
 
 
+def _configure_research_groq_credentials(uses_groq: bool) -> bool:
+    """Give GPT Researcher its dedicated key without exposing its value.
+
+    GPT Researcher constructs its own ChatGroq clients and reads the standard
+    ``GROQ_API_KEY`` variable internally. Direct pipeline calls do not depend
+    on this mutation because GroqProvider prefers ``PIPELINE_GROQ_API_KEY``.
+    The legacy single-key setup remains supported when the dedicated research
+    key is absent.
+    """
+    research_key = os.environ.get("RESEARCH_GROQ_API_KEY")
+    if not uses_groq or not research_key:
+        return False
+    os.environ["GROQ_API_KEY"] = research_key
+    logger.info("GPT Researcher configured with RESEARCH_GROQ_API_KEY")
+    return True
+
+
 def _get_scope_from_tender(workspace_slug: str) -> str:
     """Independent, lightweight read of the embedded tender doc — does NOT
     rely on the Extraction agent's output, so this stays safe to run in
@@ -75,7 +92,10 @@ def _get_scope_from_tender(workspace_slug: str) -> str:
             top_n=6,
         )
         prompt = f"TENDER DOCUMENT EXCERPTS:\n\n{context}\n\n{_SCOPE_PROMPT}"
-        response_text = get_provider().complete(prompt)
+        response_text = get_provider().complete(
+            prompt,
+            request_label="research.scope",
+        )
         scope = response_text.strip().strip('"')
         return scope if scope else _FALLBACK_SCOPE
     except Exception as e:
@@ -100,7 +120,10 @@ def _get_budget_from_tender(workspace_slug: str) -> str:
             client, workspace_slug, "total budget, price ceiling, contract value", top_n=4
         )
         prompt = f"TENDER DOCUMENT EXCERPTS:\n\n{context}\n\n{_BUDGET_PROMPT}"
-        response_text = get_provider().complete(prompt)
+        response_text = get_provider().complete(
+            prompt,
+            request_label="research.budget",
+        )
         budget = response_text.strip().strip('"')
         return budget if budget else _FALLBACK_BUDGET
     except Exception as e:
@@ -128,6 +151,14 @@ async def _run_research(query: str) -> str:
     # cannot prevent the FastAPI application from starting. Any failure here
     # is caught by research_agent(), reported in the run output, and the rest
     # of the proposal pipeline can continue without external research.
+    groq_models = (
+        os.environ.get("FAST_LLM", ""),
+        os.environ.get("SMART_LLM", ""),
+        os.environ.get("STRATEGIC_LLM", ""),
+    )
+    uses_groq = any(model.strip().lower().startswith("groq:") for model in groq_models)
+    _configure_research_groq_credentials(uses_groq)
+
     from gpt_researcher import GPTResearcher
 
     researcher = GPTResearcher(query=query, report_type="research_report")
@@ -154,12 +185,6 @@ async def _run_research(query: str) -> str:
     # pass through providers/groq_provider.py. Give every internal LLM client
     # one shared LangChain rate limiter and add boundary cooldowns so research
     # cannot collide with the direct calls immediately before/after this step.
-    groq_models = (
-        os.environ.get("FAST_LLM", ""),
-        os.environ.get("SMART_LLM", ""),
-        os.environ.get("STRATEGIC_LLM", ""),
-    )
-    uses_groq = any(model.strip().lower().startswith("groq:") for model in groq_models)
     groq_interval = max(
         0.0, float(os.environ.get("GROQ_MIN_INTERVAL_SECONDS", "30"))
     )

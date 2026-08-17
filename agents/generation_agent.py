@@ -239,14 +239,16 @@ def generation_agent(state: dict) -> dict:
     response_template_rules = requirements.get("response_template", {})
     revision_feedback = state.get("quality_report") or "(first generation attempt)"
     batch_size = max(1, int(os.environ.get("GENERATION_BATCH_SIZE", "3")))
-    batch_max_tokens = max(
-        512, int(os.environ.get("GENERATION_BATCH_MAX_TOKENS", "1800"))
+    batch_max_tokens = min(
+        1400,
+        max(512, int(os.environ.get("GENERATION_BATCH_MAX_TOKENS", "1400"))),
     )
     context_limit = max(
         2000, int(os.environ.get("GENERATION_CONTEXT_MAX_CHARS", "6000"))
     )
-    prompt_max_chars = max(
-        8000, int(os.environ.get("GENERATION_PROMPT_MAX_CHARS", "13000"))
+    prompt_max_chars = min(
+        11000,
+        max(8000, int(os.environ.get("GENERATION_PROMPT_MAX_CHARS", "11000"))),
     )
     batches = _section_batches(response_template_rules, batch_size=batch_size)
 
@@ -326,7 +328,9 @@ def generation_agent(state: dict) -> dict:
 
         try:
             batch_draft = get_provider().complete(
-                prompt, max_tokens=batch_max_tokens
+                prompt,
+                max_tokens=batch_max_tokens,
+                request_label=f"generation.batch_{batch_number}_of_{len(batches)}",
             ).strip()
             if not batch_draft:
                 raise ValueError("the model returned an empty section batch")
