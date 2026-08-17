@@ -9,7 +9,7 @@ Usage in an agent:
     text = provider.complete(EXTRACTION_PROMPT)
 
 Set LLM_PROVIDER in .env to switch backends without touching any agent
-code: LLM_PROVIDER=ollama (default, local/free) | groq (cloud, fast).
+code: LLM_PROVIDER=ollama (default, local/free) | groq | cerebras.
 """
 
 import logging
@@ -17,6 +17,7 @@ import os
 from typing import Dict, Optional, Type
 
 from providers.base import LLMProvider, LLMProviderError
+from providers.cerebras_provider import CerebrasProvider
 from providers.groq_provider import GroqProvider
 from providers.ollama_provider import OllamaProvider
 
@@ -25,6 +26,7 @@ logger = logging.getLogger(__name__)
 _REGISTRY: Dict[str, Type[LLMProvider]] = {
     "ollama": OllamaProvider,
     "groq": GroqProvider,
+    "cerebras": CerebrasProvider,
 }
 
 # Instances are cached per provider name — constructing one validates its
