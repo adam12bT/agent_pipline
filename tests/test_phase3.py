@@ -38,6 +38,16 @@ class ResponseTemplateQualityTests(unittest.TestCase):
         self.assertIn(f"## {expected}", draft)
         self.assertEqual(unmatched, [])
 
+    def test_numbered_reworded_heading_is_restored_to_exact_template_title(self):
+        expected = "10. Proposition financière / Financial Proposal"
+        draft, unmatched = _normalize_batch_headings(
+            "## 10. Budget et tarification\nMontant fondé sur le cahier des charges.",
+            [expected],
+        )
+
+        self.assertIn(f"## {expected}", draft)
+        self.assertEqual(unmatched, [])
+
     def test_quality_evaluator_falls_back_when_groq_rejects_json_mode(self):
         provider = Mock()
         provider.complete.side_effect = [

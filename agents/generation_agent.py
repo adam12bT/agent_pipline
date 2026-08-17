@@ -97,6 +97,13 @@ def _heading_aliases(section: str) -> set[str]:
     return aliases
 
 
+def _section_number(value: str) -> str | None:
+    """Return a leading template section number, such as ``5`` or ``5.2``."""
+    heading = re.sub(r"^\s{0,3}#{1,6}\s*", "", str(value).strip())
+    match = re.match(r"^(?:section\s+)?(\d+(?:\.\d+)*)[.)\-:]?\s+", heading, re.I)
+    return match.group(1) if match else None
+
+
 def _normalize_batch_headings(draft: str, sections: list[str]) -> tuple[str, list[str]]:
     """Restore exact client titles when the model shortens bilingual headings.
 
@@ -110,13 +117,20 @@ def _normalize_batch_headings(draft: str, sections: list[str]) -> tuple[str, lis
     used_lines: set[int] = set()
     for section in sections:
         aliases = _heading_aliases(section)
+        expected_number = _section_number(section)
         matched_line = next(
             (
                 index
                 for index, line in enumerate(lines)
                 if index not in used_lines
                 and re.match(r"^\s{0,3}#{1,6}\s+", line)
-                and _canonical_heading(line) in aliases
+                and (
+                    _canonical_heading(line) in aliases
+                    or (
+                        expected_number is not None
+                        and _section_number(line) == expected_number
+                    )
+                )
             ),
             None,
         )

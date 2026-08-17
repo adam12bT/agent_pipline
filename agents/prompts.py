@@ -120,14 +120,23 @@ add an alternative top-level outline. Map the tender requirements, deliverables,
 timeline, risks, quality controls, security measures, team evidence, and commercial constraints \
 into the most appropriate client-defined sections.
 
+Keep EACH assigned section between 180 and 300 words unless a compliance table genuinely needs \
+more space. Reserve enough response space for every assigned heading: never expand an early \
+section at the cost of omitting a later one. Emit every exact Markdown heading even when its \
+content can only be a transparent placeholder because evidence is missing.
+
 For team content, use ONLY the CV excerpts above. If no CV excerpts were provided, include the \
 clearly labelled placeholder "[TEAM PROFILES TO BE COMPLETED — no matching CVs found in the \
 company knowledge base]" in the relevant client section instead of inventing names, roles, or \
 experience.
 
-Do not invent specific figures, dates, project names, or consultant names that are not present \
-in the material above or the tender document itself — leave a clear placeholder like \
-[TO BE CONFIRMED] instead of making something up. Write in a professional, confident register \
+Do not invent specific figures, dates, project names, consultant names, vendors, identity \
+providers, cloud providers, certificate authorities, datacenter locations, exchange rates, or \
+currency conversions that are not present in the supplied material. Do not turn a tender \
+requirement into a claim that the bidder already implements it: describe it as a proposed or \
+committed future control. For unknown information, write exactly [À CONFIRMER / TO BE CONFIRMED] \
+without attaching a guessed example (do not write "provider X", an assumed city, or an \
+illustrative product name). Write in a professional, confident register \
 appropriate for a formal procurement submission."""
 
 
