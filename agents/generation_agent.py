@@ -11,6 +11,12 @@ from company_knowledge import (
 )
 from .prompts import GENERATION_PROMPT_TEMPLATE
 from providers import get_provider
+from pipeline_progress import (
+    finish_generation,
+    mark_batch_completed,
+    mark_batch_started,
+    start_generation,
+)
 from retrieval import get_relevant_chunks
 
 logger = logging.getLogger(__name__)
@@ -142,6 +148,34 @@ def _normalize_batch_headings(draft: str, sections: list[str]) -> tuple[str, lis
     return "\n".join(lines), unmatched
 
 
+def _split_batch_sections(draft: str, sections: list[str]) -> dict[str, str]:
+    """Split a generated Markdown batch into exact template-section blocks."""
+    lines = draft.splitlines()
+    starts: list[tuple[int, str]] = []
+    for index, line in enumerate(lines):
+        if not re.match(r"^\s{0,3}#{1,6}\s+", line):
+            continue
+        canonical = _canonical_heading(line)
+        number = _section_number(line)
+        matched = next(
+            (
+                section
+                for section in sections
+                if canonical in _heading_aliases(section)
+                or (number is not None and number == _section_number(section))
+            ),
+            None,
+        )
+        if matched and matched not in {title for _, title in starts}:
+            starts.append((index, matched))
+
+    content: dict[str, str] = {}
+    for position, (start, section) in enumerate(starts):
+        end = starts[position + 1][0] if position + 1 < len(starts) else len(lines)
+        content[section] = "\n".join(lines[start:end]).strip()
+    return content
+
+
 def _clip(value, limit: int) -> str:
     text = str(value)
     if len(text) <= limit:
@@ -265,6 +299,8 @@ def generation_agent(state: dict) -> dict:
         max(8000, int(os.environ.get("GENERATION_PROMPT_MAX_CHARS", "11000"))),
     )
     batches = _section_batches(response_template_rules, batch_size=batch_size)
+    run_id = state.get("run_id")
+    start_generation(run_id, batches)
 
     generation_evidence = {
         "section_batches": [],
@@ -283,6 +319,7 @@ def generation_agent(state: dict) -> dict:
 
     draft_parts = []
     for batch_number, sections in enumerate(batches, start=1):
+        mark_batch_started(run_id, batch_number)
         section_names = "; ".join(sections)
         batch_query = (
             f"{search_query}; facts, constraints, evidence and instructions for sections: "
@@ -362,6 +399,11 @@ def generation_agent(state: dict) -> dict:
                 )
             batch_evidence["draft"] = batch_draft
             draft_parts.append(batch_draft)
+            mark_batch_completed(
+                run_id,
+                batch_number,
+                _split_batch_sections(batch_draft, sections),
+            )
             logger.info(
                 "Generation attempt %d completed batch %d/%d (%s)",
                 attempt_number, batch_number, len(batches), section_names,
@@ -376,6 +418,7 @@ def generation_agent(state: dict) -> dict:
                 attempt_number, batch_number, len(batches), workspace_slug, e,
                 exc_info=True,
             )
+            finish_generation(run_id, failed=True)
             return {
                 "draft_proposal": "",
                 "generation_evidence": generation_evidence,
@@ -385,6 +428,7 @@ def generation_agent(state: dict) -> dict:
             }
 
     draft = "\n\n".join(draft_parts)
+    finish_generation(run_id)
 
     return {
         "draft_proposal": draft,

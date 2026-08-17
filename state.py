@@ -31,6 +31,7 @@ from typing import Annotated, TypedDict
 
 class RFPState(TypedDict, total=False):
     # --- input ---
+    run_id: str                    # backend run identifier for live progress updates
     tender_file_path: str          # path to the RFP/cahier des charges (PDF/DOCX)
     response_template_file_path: str  # client response template (PDF/DOCX)
     workspace_slug: str            # AnythingLLM workspace this run uses

@@ -10,6 +10,7 @@ from agents.generation_agent import (
     _normalize_batch_headings,
     _proposal_structure,
     _section_batches,
+    _split_batch_sections,
 )
 from agents.graph import _route_after_generation
 from agents.extraction_agent import (
@@ -47,6 +48,17 @@ class ResponseTemplateQualityTests(unittest.TestCase):
 
         self.assertIn(f"## {expected}", draft)
         self.assertEqual(unmatched, [])
+
+    def test_generated_batch_is_split_into_live_template_sections(self):
+        sections = ["1. Introduction", "2. Méthodologie / Methodology"]
+        content = _split_batch_sections(
+            "## 1. Introduction\nContexte vérifié.\n\n"
+            "## 2. Méthodologie / Methodology\nApproche proposée.",
+            sections,
+        )
+
+        self.assertIn("Contexte vérifié.", content[sections[0]])
+        self.assertIn("Approche proposée.", content[sections[1]])
 
     def test_quality_evaluator_falls_back_when_groq_rejects_json_mode(self):
         provider = Mock()

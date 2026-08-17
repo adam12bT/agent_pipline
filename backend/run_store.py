@@ -21,6 +21,7 @@ import uuid
 from typing import Optional
 
 from agents.graph import build_graph
+from pipeline_progress import get_progress
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,7 @@ def _new_run_record(
         "current_stage": None,
         "completed_stages": [],
         "state": {
+            "run_id": run_id,
             "tender_file_path": tender_file_path,
             "response_template_file_path": response_template_file_path,
             "status": "running",
@@ -96,7 +98,16 @@ def create_run(
 def get_run(run_id: str) -> Optional[dict]:
     with _LOCK:
         record = RUNS.get(run_id)
-        return dict(record) if record else None
+        result = dict(record) if record else None
+    if result:
+        progress = get_progress(run_id)
+        result["generation_progress"] = progress
+        # LangGraph emits a node result only after the whole node returns. The
+        # side-channel snapshot lets polling clients see that generation is the
+        # active stage while its internal batches are still running.
+        if progress and progress.get("status") == "generating":
+            result["current_stage"] = "generation"
+    return result
 
 
 def list_runs() -> list[dict]:
