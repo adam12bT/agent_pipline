@@ -1,0 +1,10 @@
+name = "research"
+extra = "research"
+contract = "rfp.agents.research.contract"
+ports = ["RagQuery", "WebResearch"]
+env = [
+  "RESEARCH_GROQ_API_KEY",
+  "TAVILY_API_KEY",
+  "RESEARCH_MIN_SCOPE_COVERAGE",
+  "RESEARCH_MIN_MATCHED_KEYWORDS",
+]

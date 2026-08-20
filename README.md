@@ -13,7 +13,12 @@ pinned: false
 Multi-agent RFP/tender proposal pipeline (LangGraph + AnythingLLM RAG).
 Deployed automatically from the `main` branch via GitHub Actions.
 
-Backend: FastAPI (`backend/api.py`). See `/api/health` for a liveness check.
+Canonical package: `src/rfp`. FastAPI entry point: `rfp.api.app:app`.
+See `/api/health` for a liveness check.
+
+Install the complete synchronous application with `pip install -e ".[full]"`.
+Install only one agent's dependencies with an extra such as
+`pip install -e ".[quality]"` or `pip install -e ".[research]"`.
 
 ## Starting a proposal run
 
@@ -33,7 +38,10 @@ template, upload the company's approved default response template.
 
 The Quality stage preserves the exact evidence supplied to Generation and
 uses it to score groundedness and coherence. A failed review is included as
-revision feedback on the next generation attempt. The Groq provider honors
+revision feedback on the next generation attempt. After the first complete
+draft, retries regenerate only the template sections associated with missing
+content, unsupported claims, contradictions, or localized quality failures;
+accepted sections are preserved. The Groq provider honors
 `Retry-After` and otherwise uses exponential backoff with jitter. Production
 Docker builds also fail if LLM Guard cannot be imported; `/api/health` reports
 the security and quality scanner capabilities.

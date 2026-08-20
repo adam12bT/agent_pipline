@@ -6,7 +6,7 @@ logs normally — that alone does NOT make logs appear anywhere useful,
 because without a configured handler, Python's logging module falls back
 to the "handler of last resort" (WARNING+ only, no formatting, easy to
 miss). This module is the ONE place that actually calls
-`logging.basicConfig(...)`, and every process entry point (main.py,
+`logging.basicConfig(...)`, and every process entry point (the CLI,
 backend/api.py) calls `configure_logging()` once, at startup, before
 anything else runs.
 
@@ -22,7 +22,7 @@ _CONFIGURED = False
 
 
 def configure_logging() -> None:
-    """Idempotent — safe to call more than once (e.g. if both main.py and
+    """Idempotent — safe to call more than once (e.g. if both the CLI and
     a module it imports call it); only the first call takes effect."""
     global _CONFIGURED
     if _CONFIGURED:
