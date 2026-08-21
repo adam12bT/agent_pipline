@@ -338,7 +338,10 @@ def research_agent(state: dict, *, web=None) -> dict:
         }
 
     relevance_report = _evaluate_research_relevance(scope_context, research_summary)
-    if not relevance_report["relevant"]:
+    if (
+        not relevance_report["relevant"]
+        and relevance_report["reason"] == "conflicting_domain"
+    ):
         error_msg = (
             "Research relevance gate rejected the external report: "
             f"reason={relevance_report['reason']}, "
@@ -353,6 +356,34 @@ def research_agent(state: dict, *, web=None) -> dict:
             "research_relevant": False,
             "relevance_report": relevance_report,
             "errors": [error_msg],
+        }
+
+    # Coverage, completeness, and citation checks are advisory. Web-research
+    # providers can return a useful partial report when they hit a response
+    # limit, and discarding that report removes all external context from the
+    # generation step. Keep only the domain-conflict check blocking so clearly
+    # unrelated research (for example oil pipelines for a software tender) is
+    # still prevented from contaminating the proposal.
+    if not relevance_report["relevant"]:
+        advisory_reason = relevance_report["reason"]
+        warning = (
+            "Research relevance advisory: the external report was retained "
+            f"despite {advisory_reason}."
+        )
+        relevance_report = {
+            **relevance_report,
+            "relevant": True,
+            "meets_relevance_quality_gate": False,
+            "advisory_warning": advisory_reason,
+            "reason": f"accepted_with_warning:{advisory_reason}",
+            "blocking": False,
+        }
+        logger.warning(warning)
+    else:
+        relevance_report = {
+            **relevance_report,
+            "meets_relevance_quality_gate": True,
+            "blocking": False,
         }
 
     logger.info(
