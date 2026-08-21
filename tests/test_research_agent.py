@@ -91,6 +91,33 @@ class ResearchRelevanceTests(unittest.TestCase):
         self.assertNotIn("bridge construction", result["research_summary"].lower())
         self.assertIn("relevance gate rejected", result["errors"][0].lower())
 
+    def test_agent_retains_truncated_research_with_advisory_warning(self):
+        report = (
+            "Digital platform competitors provide portal, back-office, API-first "
+            "cloud hosting, data repositories, MFA, RBAC, and software security. "
+            "[Source](https://example.com/market) The strongest competitor offers a large-"
+        )
+        web = FakeWebResearch(report)
+        result = research_agent(
+            {
+                "is_verified": True,
+                "scope_summary": self.scope,
+                "budget": "480000 TND",
+            },
+            web=web,
+        )
+
+        self.assertTrue(result["research_relevant"])
+        self.assertEqual(result["research_summary"], report)
+        self.assertTrue(result["relevance_report"]["relevant"])
+        self.assertFalse(
+            result["relevance_report"]["meets_relevance_quality_gate"]
+        )
+        self.assertEqual(
+            result["relevance_report"]["advisory_warning"],
+            "truncated_or_incomplete_report",
+        )
+
     def test_physical_pipeline_report_is_rejected_for_software_tender(self):
         report = (
             "The API-first market for pipeline inspection includes oil and gas "
