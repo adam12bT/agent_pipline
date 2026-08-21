@@ -22,14 +22,14 @@ import re
 
 from .prompts import EXTRACTION_PROMPT
 from providers import get_provider
+from rfp.default_template import default_response_template
 
 logger = logging.getLogger(__name__)
 
 _RETRIEVAL_QUERY = (
-    "scope of work, deliverables, mandatory technical requirements, integrations, "
-    "security and performance constraints, contractual obligations, eligibility, "
-    "SLA, submission deadline, project duration, budget, evaluation criteria, "
-    "selection method"
+    "all requested work, deliverables, mandatory requirements, domain-specific "
+    "constraints, required evidence and forms, submission instructions, eligibility, "
+    "contractual and commercial terms, deadlines, budget, evaluation and selection"
 )
 
 _TOP_LEVEL_NUMBERED_HEADING = re.compile(
@@ -237,21 +237,28 @@ def extraction_agent(state: dict, *, rag=None) -> dict:
         return {}
 
     workspace_slug = state["workspace_slug"]
-    template_workspace_slug = state["response_template_workspace_slug"]
-    deterministic_sections = _extract_template_sections(
-        state["response_template_file_path"]
+    template_workspace_slug = state.get("response_template_workspace_slug")
+    template_file_path = state.get("response_template_file_path")
+    deterministic_sections = (
+        _extract_template_sections(template_file_path) if template_file_path else []
     )
 
     try:
         if rag is None:
             raise RuntimeError("RagQuery dependency was not provided")
         context = rag.query(workspace_slug, _RETRIEVAL_QUERY, top_n=8)
-        template_context = rag.query(
-            template_workspace_slug,
-            "required response sections, section order, instructions, formatting, "
-            "page limits, annexes and mandatory tables",
-            top_n=10,
-        )
+        if template_workspace_slug:
+            template_context = rag.query(
+                template_workspace_slug,
+                "all section headings, exact section order, content instructions, "
+                "formatting rules, limits, annexes, forms and mandatory tables",
+                top_n=10,
+            )
+        else:
+            template_context = (
+                "NO RESPONSE TEMPLATE WAS UPLOADED. Extract tender facts only; "
+                "the application will attach its built-in response structure."
+            )
         prompt = (
             f"TENDER DOCUMENT EXCERPTS:\n\n{context}\n\n"
             f"RESPONSE TEMPLATE EXCERPTS:\n\n{template_context}\n\n"
@@ -264,7 +271,13 @@ def extraction_agent(state: dict, *, rag=None) -> dict:
             include_reasoning=False,
         )
         requirements = _extract_json(response_text)
-        requirements = _merge_template_outline(requirements, deterministic_sections)
+        if template_file_path:
+            requirements = _merge_template_outline(requirements, deterministic_sections)
+            template = requirements.get("response_template")
+            if isinstance(template, dict):
+                template["template_source"] = "uploaded"
+        else:
+            requirements["response_template"] = default_response_template()
     except Exception as e:
         error_msg = f"Extraction agent failed: {e}"
         logger.error("Extraction failed for workspace %r: %s", workspace_slug, e, exc_info=True)

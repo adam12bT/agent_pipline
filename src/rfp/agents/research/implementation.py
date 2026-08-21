@@ -44,69 +44,10 @@ _REJECTED_RESEARCH_SUMMARY = (
     "because it did not match the tender scope.)"
 )
 
-_DOMAIN_PHRASES = {
-    "digital_software": {
-        "api first",
-        "back office",
-        "cloud",
-        "containerized",
-        "data repository",
-        "digital platform",
-        "information system",
-        "mfa",
-        "microservice",
-        "portal",
-        "rbac",
-        "software",
-        "tls",
-        "user interface",
-        "web application",
-    },
-    "physical_pipeline": {
-        "flowline",
-        "gas pipeline",
-        "hdpe",
-        "hydraulic test",
-        "ndt",
-        "oil and gas",
-        "oil pipeline",
-        "pipe manufacturer",
-        "pipeline construction",
-        "pipeline inspection",
-        "pipeline welding",
-        "piping",
-        "water pipeline",
-    },
-    "civil_infrastructure": {
-        "bridge construction",
-        "civil engineering",
-        "concrete",
-        "construction site",
-        "geotechnical",
-        "road construction",
-        "structural engineering",
-    },
-}
-
-
 def _normalized_text(text: str) -> str:
     decomposed = unicodedata.normalize("NFKD", text or "")
     ascii_text = "".join(char for char in decomposed if not unicodedata.combining(char))
     return re.sub(r"\s+", " ", ascii_text.lower()).strip()
-
-
-def _domain_scores(text: str) -> dict[str, int]:
-    normalized = _normalized_text(text)
-    return {
-        domain: sum(1 for phrase in phrases if phrase in normalized)
-        for domain, phrases in _DOMAIN_PHRASES.items()
-    }
-
-
-def _primary_domain(text: str) -> str:
-    scores = _domain_scores(text)
-    domain, score = max(scores.items(), key=lambda item: item[1])
-    return domain if score >= 2 else "unknown"
 
 
 def _scope_context(state: dict) -> str:
@@ -205,23 +146,11 @@ def _evaluate_research_relevance(scope: str, report: str) -> dict:
         and coverage >= minimum_coverage
     )
 
-    scope_domain = _primary_domain(scope)
-    scope_domain_scores = _domain_scores(scope)
-    report_domain_scores = _domain_scores(report)
-    conflicting_domains: list[str] = []
-    if scope_domain == "digital_software":
-        conflicting_domains = [
-            domain
-            for domain in ("physical_pipeline", "civil_infrastructure")
-            if report_domain_scores[domain] >= 2
-        ]
-
     completeness = _report_completeness(report)
     source_quality = _report_source_quality(report)
     relevant = all(
         (
             lexical_relevance,
-            not conflicting_domains,
             completeness["complete"],
             source_quality["has_enough_sources"],
         )
@@ -230,8 +159,6 @@ def _evaluate_research_relevance(scope: str, report: str) -> dict:
     reason = "accepted"
     if not scope_is_usable:
         reason = "insufficient_tender_scope"
-    elif conflicting_domains:
-        reason = "conflicting_domain"
     elif not completeness["complete"]:
         reason = "truncated_or_incomplete_report"
     elif not source_quality["has_enough_sources"]:
@@ -248,10 +175,6 @@ def _evaluate_research_relevance(scope: str, report: str) -> dict:
         "minimum_matched_keywords": minimum_matches,
         "scope_keyword_count": len(scope_keywords),
         "matched_keywords": matched[:25],
-        "scope_domain": scope_domain,
-        "scope_domain_scores": scope_domain_scores,
-        "report_domain_scores": report_domain_scores,
-        "conflicting_domains": conflicting_domains,
         "report_complete": completeness["complete"],
         "report_chars": completeness["report_chars"],
         "citation_count": source_quality["citation_count"],
@@ -271,13 +194,6 @@ def _build_query(
         query += _QUERY_BUDGET_CLAUSE.format(budget=budget)
     if selection_method:
         query += _QUERY_SELECTION_METHOD_CLAUSE.format(selection_method=selection_method)
-    if _primary_domain(scope) == "digital_software":
-        query += (
-            " This is a digital/software and information-system procurement. "
-            "Interpret workflow, processing, or testing pipelines as software concepts. "
-            "Exclude oil/gas pipelines, water pipes, HDPE, NDT, bridge construction, "
-            "and civil-engineering suppliers unless the tender explicitly concerns them."
-        )
     query += (
         " Treat a company as a likely competitor only when a cited source shows that "
         "it delivers relevant consulting, implementation, or integration services. "
@@ -338,32 +254,10 @@ def research_agent(state: dict, *, web=None) -> dict:
         }
 
     relevance_report = _evaluate_research_relevance(scope_context, research_summary)
-    if (
-        not relevance_report["relevant"]
-        and relevance_report["reason"] == "conflicting_domain"
-    ):
-        error_msg = (
-            "Research relevance gate rejected the external report: "
-            f"reason={relevance_report['reason']}, "
-            f"coverage={relevance_report['coverage']:.3f} "
-            f"(minimum={relevance_report['minimum_coverage']:.3f}), "
-            f"matched={relevance_report['matched_keyword_count']} "
-            f"(minimum={relevance_report['minimum_matched_keywords']})."
-        )
-        logger.warning(error_msg)
-        return {
-            "research_summary": _REJECTED_RESEARCH_SUMMARY,
-            "research_relevant": False,
-            "relevance_report": relevance_report,
-            "errors": [error_msg],
-        }
-
     # Coverage, completeness, and citation checks are advisory. Web-research
     # providers can return a useful partial report when they hit a response
     # limit, and discarding that report removes all external context from the
-    # generation step. Keep only the domain-conflict check blocking so clearly
-    # unrelated research (for example oil pipelines for a software tender) is
-    # still prevented from contaminating the proposal.
+    # generation step. Relevance diagnostics remain visible but are advisory.
     if not relevance_report["relevant"]:
         advisory_reason = relevance_report["reason"]
         warning = (

@@ -10,7 +10,7 @@ from rfp.orchestration.graph import build_graph
 from rfp.orchestration.state import flatten_pipeline_state, initial_pipeline_state
 
 
-def run(tender_file_path: str, response_template_file_path: str) -> dict:
+def run(tender_file_path: str, response_template_file_path: str | None = None) -> dict:
     """Run the complete pipeline and print its user-facing result."""
     load_dotenv()
     configure_logging()
@@ -50,7 +50,11 @@ def run(tender_file_path: str, response_template_file_path: str) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the RFP proposal pipeline")
     parser.add_argument("tender")
-    parser.add_argument("response_template")
+    parser.add_argument(
+        "response_template",
+        nargs="?",
+        help="Optional PDF/DOCX response template; the built-in template is used when omitted.",
+    )
     args = parser.parse_args()
     run(args.tender, args.response_template)
 

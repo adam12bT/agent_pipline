@@ -48,8 +48,8 @@ def _new_run_record(
     run_id: str,
     tender_file_path: str,
     original_filename: str,
-    response_template_file_path: str,
-    response_template_filename: str,
+    response_template_file_path: str | None,
+    response_template_filename: str | None,
 ) -> dict:
     internal_state = initial_pipeline_state(
         tender_file_path,
@@ -78,8 +78,8 @@ def _new_run_record(
 def create_run(
     tender_file_path: str,
     original_filename: str,
-    response_template_file_path: str,
-    response_template_filename: str,
+    response_template_file_path: str | None = None,
+    response_template_filename: str | None = None,
 ) -> str:
     run_id = uuid.uuid4().hex[:12]
     record = _new_run_record(

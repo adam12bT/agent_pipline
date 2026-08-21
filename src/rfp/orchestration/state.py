@@ -20,7 +20,7 @@ class PipelineState(TypedDict, total=False):
 
 def initial_pipeline_state(
     tender_file_path: str,
-    response_template_file_path: str,
+    response_template_file_path: str | None = None,
     *,
     run_id: str | None = None,
 ) -> PipelineState:

@@ -9,7 +9,7 @@ importable):
 Endpoints
 ---------
 Pipeline runs:
-  POST   /api/runs                       upload tender + response template, start a run
+  POST   /api/runs                       upload tender and optional response template
   GET    /api/runs                       list all runs (summary)
   GET    /api/runs/{run_id}              full state of one run (poll this)
   GET    /api/runs/{run_id}/download     download the draft proposal (.md)
@@ -100,7 +100,10 @@ def health():
 # --------------------------------------------------------------------------
 
 @app.post("/api/runs")
-async def start_run(file: UploadFile = File(...), template: UploadFile = File(...)):
+async def start_run(
+    file: UploadFile = File(...),
+    template: UploadFile | None = File(default=None),
+):
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in SUPPORTED_TENDER_EXTENSIONS:
         raise HTTPException(
@@ -108,27 +111,30 @@ async def start_run(file: UploadFile = File(...), template: UploadFile = File(..
             f"Unsupported file type '{ext}'. Supported types: {sorted(SUPPORTED_TENDER_EXTENSIONS)}",
         )
 
-    template_ext = os.path.splitext(template.filename or "")[1].lower()
-    if template_ext not in SUPPORTED_TENDER_EXTENSIONS:
-        raise HTTPException(
-            400,
-            f"Unsupported response template type '{template_ext}'. "
-            f"Supported types: {sorted(SUPPORTED_TENDER_EXTENSIONS)}",
-        )
+    if template is not None:
+        template_ext = os.path.splitext(template.filename or "")[1].lower()
+        if template_ext not in SUPPORTED_TENDER_EXTENSIONS:
+            raise HTTPException(
+                400,
+                f"Unsupported response template type '{template_ext}'. "
+                f"Supported types: {sorted(SUPPORTED_TENDER_EXTENSIONS)}",
+            )
 
     dest_path, _ = _save_upload(file, "tenders")
-    template_path, _ = _save_upload(template, "response-templates")
+    template_path = None
+    if template is not None:
+        template_path, _ = _save_upload(template, "response-templates")
     run_id = create_run(
         tender_file_path=dest_path,
         original_filename=file.filename,
         response_template_file_path=template_path,
-        response_template_filename=template.filename,
+        response_template_filename=template.filename if template else None,
     )
     logger.info(
         "Started run %s for tender %r with response template %r",
         run_id,
         file.filename,
-        template.filename,
+        template.filename if template else "built-in default",
     )
     return {"run_id": run_id}
 

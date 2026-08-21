@@ -12,7 +12,7 @@ class ContractModel(BaseModel):
 class VerifierInput(ContractModel):
     run_id: str | None = None
     tender_file_path: str
-    response_template_file_path: str
+    response_template_file_path: str | None = None
 
 
 class VerifierOutput(ContractModel):
@@ -22,14 +22,16 @@ class VerifierOutput(ContractModel):
     response_template_workspace_slug: str | None = None
     document_processing: dict[str, Any] = Field(default_factory=dict)
     response_template_processing: dict[str, Any] = Field(default_factory=dict)
+    template_source: str = "default"
+    template_version: str | None = None
     errors: list[str] = Field(default_factory=list)
 
 
 class ExtractionInput(ContractModel):
     is_verified: bool
     workspace_slug: str
-    response_template_workspace_slug: str
-    response_template_file_path: str
+    response_template_workspace_slug: str | None = None
+    response_template_file_path: str | None = None
 
 
 class ExtractionOutput(ContractModel):
@@ -58,7 +60,7 @@ class GenerationInput(ContractModel):
     run_id: str | None = None
     is_verified: bool
     workspace_slug: str
-    response_template_workspace_slug: str
+    response_template_workspace_slug: str | None = None
     requirements: dict[str, Any] = Field(default_factory=dict)
     research_summary: str = ""
     previous_draft: str = ""

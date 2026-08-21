@@ -9,8 +9,9 @@ here instead of defining its own inline string.
 # Extraction Agent
 EXTRACTION_PROMPT = """Two separately labelled sources are provided above: tender excerpts and \
 response-template excerpts. Extract tender facts ONLY from the tender excerpts and template rules \
-ONLY from the response-template excerpts. Respond with ONLY a valid JSON object (no markdown \
-fences, no extra text):
+ONLY from the response-template excerpts. If those excerpts explicitly say that no template was \
+uploaded, return an empty response_template object; the application supplies the fallback. \
+Respond with ONLY a valid JSON object (no markdown fences, no extra text):
 
 {
   "scope_summary": "2-3 sentence summary of what work is being requested",
@@ -18,6 +19,10 @@ fences, no extra text):
   "technical_constraints": ["technologies, integrations, security, hosting, standards, or performance constraints"],
   "contractual_constraints": ["eligibility, legal, commercial, warranty, SLA, or contractual obligations"],
   "mandatory_requirements": ["requirements explicitly described as mandatory, required, shall, or must"],
+  "domain_specific_constraints": ["requirements unique to the tender's actual sector or subject"],
+  "required_evidence": ["documents, credentials, references, samples, or proof the bidder must submit"],
+  "required_forms": ["named forms, schedules, declarations, tables, or annexes to complete"],
+  "additional_requirements": ["important requirements that do not fit the other categories"],
   "deadlines": {"submission_deadline": "date if stated, else null", "project_duration": "if stated, else null"},
   "budget": "budget or price range if stated, else null",
   "evaluation_criteria": ["list of how proposals will be scored"],
@@ -73,7 +78,7 @@ RESEARCH_QUERY_GUARDRAILS = (
 
 # Generation Agent
 GENERATION_PROMPT_TEMPLATE = """You are a senior bid writer producing batch {batch_number} of \
-{batch_count} for a FULL technical proposal in response to the tender document below. Generate \
+{batch_count} for a formal proposal in response to the tender document below. Generate \
 ONLY the headings assigned to this batch. This is a formal deliverable that \
 will be submitted to the client for evaluation — not a cover letter and not an executive summary. \
 Each section below must be written in complete, substantive paragraphs with real analysis and \
@@ -98,12 +103,10 @@ EXTRACTED REQUIREMENTS:
 MARKET / COMPETITOR RESEARCH:
 {research_summary}
 
-RELEVANT PAST PROJECT REFERENCES (from our company's own project history — use these for \
-the "Why Us" / track record section):
+RELEVANT PAST PROJECT REFERENCES (company evidence; use wherever the selected structure asks for experience, references, qualifications, or track record):
 {project_references}
 
-RELEVANT CONSULTANT CVs (use these — and ONLY these — to write the "Proposed Team / Profils \
-Proposés" section; do not invent names, titles, or years of experience that aren't in this list):
+RELEVANT CONSULTANT CVs (company evidence; use these and only these wherever the selected structure asks for personnel, roles, credentials, or experience):
 {cv_excerpts}
 
 RELEVANT PAST PROPOSALS (for tone/structure reference only — do not copy text verbatim, \
@@ -115,17 +118,15 @@ MANDATORY PROPOSAL STRUCTURE:
 
 Write a complete, substantive Markdown section beneath every heading above. Reproduce each \
 heading exactly, including any numbering, accents, and wording supplied by the client. Do not \
-replace client headings with the default English structure, omit sections, merge sections, or \
-add an alternative top-level outline. Map the tender requirements, deliverables, methodology, \
-timeline, risks, quality controls, security measures, team evidence, and commercial constraints \
-into the most appropriate client-defined sections.
+replace headings from the selected structure, omit sections, merge sections, or add an \
+alternative top-level outline. Map every extracted requirement and available evidence into the \
+most appropriate selected section without assuming that this tender belongs to a specific domain.
 
 Follow the target word range printed beneath each assigned heading. Use the range to produce substantive analysis, concrete activities, outputs, acceptance criteria, dependencies, controls, and traceability where they are relevant to that section. Tables count toward the target. Never pad a section with unsupported claims or repetitive filler merely to reach its target; when the required company evidence is missing, use the mandated transparent placeholder and keep that part concise. Emit every exact Markdown heading assigned to this batch.
 
-For team content, use ONLY the CV excerpts above. If no CV excerpts were provided, include the \
-clearly labelled placeholder "[TEAM PROFILES TO BE COMPLETED — no matching CVs found in the \
-company knowledge base]" in the relevant client section instead of inventing names, roles, or \
-experience.
+For bidder-specific content, use only the supplied company knowledge. If the selected section requires a bidder fact that is unsupported, write [TO BE CONFIRMED - supporting company evidence not found] instead of inventing it.
+
+Follow the language required by the selected template. If it gives no language rule, use the predominant language of the tender excerpts.
 
 Do not invent specific figures, dates, project names, consultant names, vendors, identity \
 providers, cloud providers, certificate authorities, datacenter locations, exchange rates, or \

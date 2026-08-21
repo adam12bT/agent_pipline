@@ -34,20 +34,14 @@ import re
 from json_repair import loads as repair_json_loads
 
 from rfp.prompts import QUALITY_GROUNDING_PROMPT_TEMPLATE
+from rfp.default_template import resolve_response_template
 from providers import get_provider
 
 logger = logging.getLogger(__name__)
 
-REQUIRED_SECTIONS = [
-    "Executive Summary",
-    "Understanding of the Requirements",
-    "Proposed Approach",
-    "Work Plan",
-    "Proposed Team",
-    "Why Us",
-]
-
-MIN_WORD_COUNT = 150
+# A non-empty draft is the only universal length rule. Section count and order
+# come from the uploaded template or the canonical fallback template.
+MIN_WORD_COUNT = 1
 MIN_GROUNDEDNESS_SCORE = float(os.environ.get("QUALITY_MIN_GROUNDEDNESS", "0.75"))
 MIN_COHERENCE_SCORE = float(os.environ.get("QUALITY_MIN_COHERENCE", "0.75"))
 QUALITY_EVIDENCE_MAX_CHARS = min(
@@ -123,9 +117,7 @@ def _run_llm_guard(draft: str) -> dict:
 
 def _template_sections(state: dict) -> tuple[list[str], list[str]]:
     requirements = state.get("requirements") or {}
-    template = requirements.get("response_template") or {}
-    if not isinstance(template, dict):
-        return REQUIRED_SECTIONS, REQUIRED_SECTIONS
+    template = resolve_response_template(requirements)
 
     raw_required = template.get("required_sections") or []
     raw_ordered = template.get("section_order") or []
@@ -144,7 +136,7 @@ def _template_sections(state: dict) -> tuple[list[str], list[str]]:
         for section in raw_ordered
         if str(section).strip()
     ]
-    return required or REQUIRED_SECTIONS, ordered or required or REQUIRED_SECTIONS
+    return required, ordered or required
 
 
 def _canonical_section_title(value: str) -> str:
@@ -253,12 +245,8 @@ def _identify_failed_sections(
             if field == "contradictions" and not matches:
                 unmapped_contradiction = True
 
-    blocks = _section_blocks(draft, sections)
     if word_count < MIN_WORD_COUNT:
-        short_sections = [
-            section for section, block in blocks.items() if len(block.split()) < 80
-        ]
-        failed.update(short_sections or sections)
+        failed.update(sections)
 
     score_failed = (
         grounding_review.get("groundedness_score", 0.0) < MIN_GROUNDEDNESS_SCORE

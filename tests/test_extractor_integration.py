@@ -74,7 +74,7 @@ class VerifierExtractorIntegrationTests(unittest.TestCase):
             os.unlink(file_path)
             os.unlink(template_path)
 
-    def test_verifier_blocks_when_response_template_is_missing(self):
+    def test_verifier_uses_default_when_response_template_is_missing(self):
         handle, file_path = tempfile.mkstemp(suffix=".pdf")
         try:
             with os.fdopen(handle, "wb") as file_obj:
@@ -82,8 +82,10 @@ class VerifierExtractorIntegrationTests(unittest.TestCase):
             result = verifier_module.verifier_agent(
                 {"tender_file_path": file_path}, ingestion=FakeIngestion()
             )
-            self.assertFalse(result["is_verified"])
-            self.assertIn("Response template file not found", result["verification_errors"][0])
+            self.assertTrue(result["is_verified"])
+            self.assertEqual(result["template_source"], "default")
+            self.assertIsNone(result["response_template_workspace_slug"])
+            self.assertTrue(result["response_template_processing"]["skipped"])
         finally:
             os.unlink(file_path)
 

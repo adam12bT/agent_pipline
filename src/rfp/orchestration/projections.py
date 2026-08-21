@@ -18,9 +18,9 @@ def extraction_input(state: dict) -> ExtractionInput:
         is_verified=verified.get("is_verified", False),
         workspace_slug=verified.get("workspace_slug", ""),
         response_template_workspace_slug=verified.get(
-            "response_template_workspace_slug", ""
+            "response_template_workspace_slug"
         ),
-        response_template_file_path=request.get("response_template_file_path", ""),
+        response_template_file_path=request.get("response_template_file_path"),
     )
 
 
@@ -47,7 +47,7 @@ def generation_input(state: dict) -> GenerationInput:
         is_verified=verified.get("is_verified", False),
         workspace_slug=verified.get("workspace_slug", ""),
         response_template_workspace_slug=verified.get(
-            "response_template_workspace_slug", ""
+            "response_template_workspace_slug"
         ),
         requirements=(state.get("extraction") or {}).get("requirements") or {},
         research_summary=(state.get("research") or {}).get("research_summary", ""),

@@ -46,8 +46,8 @@ python -m rfp.compatibility_cli tender.pdf response-template.docx `
 
 ## Starting a proposal run
 
-Phase 3 requires both the tender and the client's response template. Submit
-them as multipart fields named `file` and `template`:
+The tender is required and the client's response template is optional. Submit
+them as multipart fields named `file` and `template` when both exist:
 
 ```powershell
 curl.exe -X POST http://localhost:8000/api/runs `
@@ -55,10 +55,10 @@ curl.exe -X POST http://localhost:8000/api/runs `
   -F "template=@C:\documents\response-template.docx"
 ```
 
-The verifier rejects a run when either document is absent, unsupported, or
-empty. It indexes the two files into separate workspaces so tender facts and
-template instructions remain isolated. If a client supplies no dedicated
-template, upload the company's approved default response template.
+The verifier rejects an absent, unsupported, or empty tender and validates any
+uploaded template. Uploaded templates are indexed separately so tender facts
+and template instructions remain isolated. When `template` is omitted, every
+stage uses the canonical versioned structure in `src/rfp/default_template.py`.
 
 The Quality stage preserves the exact evidence supplied to Generation and
 uses it to score groundedness and coherence. A failed review is included as

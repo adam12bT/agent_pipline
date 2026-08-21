@@ -1,14 +1,14 @@
 """
 Verifier Agent Implementation
 --------------
-First node in the pipeline. Checks that both the tender and response template
-are usable before any expensive LLM calls happen: do they exist, use a
+First node in the pipeline. Checks that the tender and any optional response
+template are usable before any expensive LLM calls happen: do they exist, use a
 supported format, and contain data? It returns only verification facts and
 errors; the orchestrator converts a failed verdict into a blocked run.
 
-It creates separate AnythingLLM workspaces and indexes both documents through
-the extractor. The isolation prevents template boilerplate from contaminating
-tender requirement retrieval.
+It always indexes the tender. When a response template is supplied it is
+indexed in a separate workspace; otherwise the canonical built-in template is
+selected without creating a template workspace.
 
 Returns only the fields declared by its output contract.
 """
@@ -16,6 +16,8 @@ Returns only the fields declared by its output contract.
 import logging
 import os
 import uuid
+
+from rfp.default_template import DEFAULT_TEMPLATE_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +30,10 @@ def verifier_agent(state: dict, *, ingestion=None) -> dict:
     file_path = state.get("tender_file_path", "")
     template_path = state.get("response_template_file_path", "")
 
-    for label, path in (("Tender", file_path), ("Response template", template_path)):
+    documents = [("Tender", file_path)]
+    if template_path:
+        documents.append(("Response template", template_path))
+    for label, path in documents:
         if not path or not os.path.isfile(path):
             errors.append(f"{label} file not found: {path or '(not provided)'}")
             continue
@@ -54,19 +59,32 @@ def verifier_agent(state: dict, *, ingestion=None) -> dict:
     # table recovery, metadata preservation and indexing to the extractor.
     run_token = uuid.uuid4().hex[:8]
     workspace_name = f"rfp-{run_token}"
-    template_workspace_name = f"rfp-{run_token}-template"
+    template_workspace_name = f"rfp-{run_token}-template" if template_path else None
 
     try:
         if ingestion is None:
             raise RuntimeError("TenderIngestion dependency was not provided")
         tender_result = ingestion.ingest(file_path, workspace_prefix=workspace_name)
-        template_result = ingestion.ingest(
-            template_path, workspace_prefix=template_workspace_name
-        )
         workspace_slug = tender_result["workspace_slug"]
-        template_workspace_slug = template_result["workspace_slug"]
         document_processing = tender_result["processing"]
-        template_processing = template_result["processing"]
+        if template_path:
+            template_result = ingestion.ingest(
+                template_path, workspace_prefix=template_workspace_name
+            )
+            template_workspace_slug = template_result["workspace_slug"]
+            template_processing = template_result["processing"]
+            template_source = "uploaded"
+            template_version = None
+        else:
+            template_workspace_slug = None
+            template_processing = {
+                "success": True,
+                "skipped": True,
+                "source": "default",
+                "version": DEFAULT_TEMPLATE_VERSION,
+            }
+            template_source = "default"
+            template_version = DEFAULT_TEMPLATE_VERSION
     except Exception as e:
         error_msg = f"Failed to set up workspace / process document: {e}"
         logger.error("Workspace setup failed for %r: %s", file_path, e, exc_info=True)
@@ -77,9 +95,9 @@ def verifier_agent(state: dict, *, ingestion=None) -> dict:
         }
 
     logger.info(
-        "Verified tender %r and response template %r; indexed into %r and %r",
+        "Verified tender %r using %s response template; workspaces=%r/%r",
         file_path,
-        template_path,
+        template_source,
         workspace_slug,
         template_workspace_slug,
     )
@@ -90,4 +108,6 @@ def verifier_agent(state: dict, *, ingestion=None) -> dict:
         "response_template_workspace_slug": template_workspace_slug,
         "document_processing": document_processing,
         "response_template_processing": template_processing,
+        "template_source": template_source,
+        "template_version": template_version,
     }

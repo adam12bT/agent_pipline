@@ -1,11 +1,13 @@
 """Generation agent implementation behind the packaged contract."""
 
+import json
 import logging
 import os
 import re
 
 from .prompts import GENERATION_PROMPT_TEMPLATE
 from providers import get_provider
+from rfp.default_template import resolve_response_template
 from pipeline_progress import (
     finish_generation,
     mark_batch_completed,
@@ -19,22 +21,11 @@ REFERENCES_WORKSPACE = "company-project-references"
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_PROPOSAL_SECTIONS = [
-    "Executive Summary",
-    "Understanding of the Requirements",
-    "Proposed Approach & Methodology",
-    "Indicative Work Plan / Timeline",
-    "Risk Management & Quality Assurance",
-    "Proposed Team (Profils Proposés)",
-    "Why Us",
-]
-
-
 def _proposal_sections(response_template_rules: dict) -> list[str]:
-    rules = response_template_rules if isinstance(response_template_rules, dict) else {}
+    rules = resolve_response_template({"response_template": response_template_rules})
     raw_sections = rules.get("section_order") or rules.get("required_sections") or []
     sections = [str(section).strip() for section in raw_sections if str(section).strip()]
-    return sections or list(_DEFAULT_PROPOSAL_SECTIONS)
+    return sections
 
 
 def _section_batches(
@@ -143,13 +134,12 @@ def _proposal_structure(
 ) -> str:
     """Turn extracted template rules into an explicit Markdown outline.
 
-    The old prompt always included a detailed default outline, which competed
-    with an uploaded client template. Defaults are now used only when the
-    template genuinely contains no section structure.
+    Uploaded outlines take priority. The canonical built-in outline is used
+    only when no usable uploaded structure exists.
     """
     rules = response_template_rules if isinstance(response_template_rules, dict) else {}
     raw_sections = rules.get("section_order") or rules.get("required_sections") or []
-    using_client_template = bool(raw_sections)
+    using_client_template = rules.get("template_source") == "uploaded"
     all_sections = _proposal_sections(rules)
     selected_sections = sections or all_sections
     minimum_words, maximum_words, budget_source = _template_section_word_target(
@@ -160,7 +150,7 @@ def _proposal_structure(
     lines = [
         "CLIENT TEMPLATE - USE THESE EXACT HEADINGS AND THIS EXACT ORDER:"
         if using_client_template
-        else "NO CLIENT SECTION OUTLINE WAS FOUND â€” USE THESE DEFAULT HEADINGS:",
+        else "BUILT-IN RESPONSE STRUCTURE - USE THESE EXACT HEADINGS AND THIS ORDER:",
         (
             f"Per-section word budget: {minimum_words}-{maximum_words} words; "
             f"derived from {budget_source}."
@@ -413,7 +403,7 @@ def generation_agent(state: dict, *, rag=None, knowledge=None) -> dict:
     except Exception as exc:
         logger.warning("Injected company knowledge adapter is not ready: %s", exc)
     workspace_slug = state["workspace_slug"]
-    template_workspace_slug = state["response_template_workspace_slug"]
+    template_workspace_slug = state.get("response_template_workspace_slug")
     requirements = state.get("requirements", {})
     search_query = requirements.get("scope_summary") or "technical proposal requirements"
     previous_generation_evidence = state.get("previous_generation_evidence") or {}
@@ -437,7 +427,8 @@ def generation_agent(state: dict, *, rag=None, knowledge=None) -> dict:
             knowledge, PROPOSALS_WORKSPACE, f"past proposal similar to: {search_query}"
         )
 
-    response_template_rules = requirements.get("response_template", {})
+    response_template_rules = resolve_response_template(requirements)
+    requirements["response_template"] = response_template_rules
     revision_feedback = state.get("quality_report") or "(first generation attempt)"
     attempt_number = state.get("generation_attempts", 0) + 1
     previous_draft = state.get("previous_draft", "")
@@ -487,6 +478,8 @@ def generation_agent(state: dict, *, rag=None, knowledge=None) -> dict:
         "past_proposals": past_proposals,
         "repair_mode": repair_mode,
         "repaired_sections": repair_sections,
+        "template_source": response_template_rules.get("template_source", "default"),
+        "template_version": response_template_rules.get("version"),
     }
 
     logger.info(
@@ -508,11 +501,16 @@ def generation_agent(state: dict, *, rag=None, knowledge=None) -> dict:
             f"{section_names}"
         )
         tender_excerpts = rag.query(workspace_slug, batch_query, top_n=4)
-        response_template_excerpts = rag.query(
-            template_workspace_slug,
-            f"content instructions, tables and formatting for sections: {section_names}",
-            top_n=4,
-        )
+        if template_workspace_slug:
+            response_template_excerpts = rag.query(
+                template_workspace_slug,
+                f"content instructions, tables and formatting for sections: {section_names}",
+                top_n=4,
+            )
+        else:
+            response_template_excerpts = json.dumps(
+                response_template_rules, ensure_ascii=False
+            )
         batch_revision_feedback = revision_feedback
         if repair_mode:
             batch_revision_feedback = {
@@ -566,6 +564,9 @@ def generation_agent(state: dict, *, rag=None, knowledge=None) -> dict:
             "cv_excerpts": fitted_context["cv_excerpts"],
             "past_proposals": fitted_context["past_proposals"],
             "prompt_chars": len(prompt),
+            "template_source": response_template_rules.get(
+                "template_source", "default"
+            ),
         }
         generation_evidence["section_batches"].append(batch_evidence)
         logger.info(

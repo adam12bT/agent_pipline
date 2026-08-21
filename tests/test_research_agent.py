@@ -63,16 +63,17 @@ class ResearchRelevanceTests(unittest.TestCase):
         self.assertTrue(result["relevant"])
         self.assertGreaterEqual(result["matched_keyword_count"], 3)
 
-    def test_unrelated_bridge_report_is_rejected(self):
+    def test_unrelated_report_is_flagged_by_generic_scope_overlap(self):
         report = (
             "Road bridge construction requires civil engineering, concrete, site "
-            "supervision, traffic management and geotechnical surveys."
+            "supervision, traffic management and geotechnical surveys. "
+            "[Source](https://example.com/bridge)"
         )
         result = _evaluate_research_relevance(self.scope, report)
         self.assertFalse(result["relevant"])
-        self.assertEqual(result["reason"], "conflicting_domain")
+        self.assertEqual(result["reason"], "low_scope_overlap")
 
-    def test_agent_does_not_forward_rejected_research(self):
+    def test_agent_retains_low_overlap_research_with_advisory(self):
         web = FakeWebResearch(
             "Road bridge construction requires concrete, structural engineering, "
             "traffic planning and construction supervision."
@@ -87,9 +88,9 @@ class ResearchRelevanceTests(unittest.TestCase):
         )
 
         self.assertEqual(web.calls, 1)
-        self.assertFalse(result["research_relevant"])
-        self.assertNotIn("bridge construction", result["research_summary"].lower())
-        self.assertIn("relevance gate rejected", result["errors"][0].lower())
+        self.assertTrue(result["research_relevant"])
+        self.assertIn("bridge construction", result["research_summary"].lower())
+        self.assertFalse(result["relevance_report"]["meets_relevance_quality_gate"])
 
     def test_agent_retains_truncated_research_with_advisory_warning(self):
         report = (
@@ -118,7 +119,7 @@ class ResearchRelevanceTests(unittest.TestCase):
             "truncated_or_incomplete_report",
         )
 
-    def test_physical_pipeline_report_is_rejected_for_software_tender(self):
+    def test_relevance_has_no_hard_coded_domain_classifier(self):
         report = (
             "The API-first market for pipeline inspection includes oil and gas "
             "pipeline construction, HDPE pipe manufacturers, NDT control, hydraulic "
@@ -127,14 +128,14 @@ class ResearchRelevanceTests(unittest.TestCase):
         result = _evaluate_research_relevance(self.scope, report)
 
         self.assertFalse(result["relevant"])
-        self.assertEqual(result["reason"], "conflicting_domain")
-        self.assertIn("physical_pipeline", result["conflicting_domains"])
+        self.assertEqual(result["reason"], "missing_verifiable_sources")
+        self.assertNotIn("conflicting_domains", result)
 
-    def test_query_explicitly_disambiguates_a_digital_pipeline(self):
+    def test_query_uses_tender_scope_without_domain_specific_exclusions(self):
         query = _build_query(self.scope, "480000 TND")
 
-        self.assertIn("digital/software", query)
-        self.assertIn("Exclude oil/gas pipelines", query)
+        self.assertIn(self.scope, query)
+        self.assertNotIn("Exclude oil/gas pipelines", query)
 
     def test_truncated_report_is_rejected(self):
         report = (
