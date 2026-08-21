@@ -38,7 +38,7 @@ def _proposal_sections(response_template_rules: dict) -> list[str]:
 
 
 def _section_batches(
-    response_template_rules: dict, batch_size: int = 3
+    response_template_rules: dict, batch_size: int = 1
 ) -> list[list[str]]:
     size = max(1, batch_size)
     sections = _proposal_sections(response_template_rules)
@@ -48,6 +48,94 @@ def _section_batches(
 def _batches_for_sections(sections: list[str], batch_size: int) -> list[list[str]]:
     size = max(1, batch_size)
     return [sections[index : index + size] for index in range(0, len(sections), size)]
+
+
+def _rule_items(value) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, (list, tuple)):
+        return [str(item) for item in value if str(item).strip()]
+    return []
+
+
+def _template_section_word_target(
+    response_template_rules: dict,
+    section_count: int,
+) -> tuple[int, int, str]:
+    """Derive one per-section budget from the uploaded template's global limit."""
+    rules = (
+        response_template_rules
+        if isinstance(response_template_rules, dict)
+        else {}
+    )
+    formatting = _rule_items(rules.get("formatting_requirements"))
+    instructions = _rule_items(
+        rules.get("instructions") or rules.get("template_instructions")
+    )
+    template_text = " ".join([*formatting, *instructions])
+    normalized = re.sub(r"[\s\u00a0]+", " ", template_text.casefold())
+
+    normalized_formatting = re.sub(
+        r"[\s\u00a0]+",
+        " ",
+        " ".join(formatting).casefold(),
+    )
+
+    total_word_limit = None
+    formatting_word_match = re.search(
+        r"(?:maximum|max|not exceed|ne doit pas depasser)"
+        r"\D{0,12}(\d[\d ,.]*?)\s*(?:words|mots)\b",
+        normalized_formatting,
+    )
+    if formatting_word_match:
+        digits = re.sub(r"\D", "", formatting_word_match.group(1))
+        total_word_limit = int(digits) if digits else None
+
+    total_word_patterns = (
+        r"(?:proposal|response|submission|document|offre|reponse)"
+        r"[^.]{0,40}?(?:maximum|max|not exceed|ne doit pas depasser)"
+        r"\D{0,12}(\d[\d ,.]*?)\s*(?:words|mots)\b",
+        r"(?:maximum|max|not exceed|ne doit pas depasser)"
+        r"\D{0,12}(\d[\d ,.]*?)\s*(?:words|mots)\b"
+        r"[^.]{0,30}?(?:total|proposal|response|submission|document|offre|reponse)",
+    )
+    for pattern in total_word_patterns:
+        if total_word_limit:
+            break
+        match = re.search(pattern, normalized)
+        if match:
+            digits = re.sub(r"\D", "", match.group(1))
+            if digits:
+                total_word_limit = int(digits)
+                break
+
+    maximum_pages = None
+    page_match = re.search(
+        r"(?:maximum|max|not exceed|ne doit pas depasser)"
+        r"\D{0,12}(\d{1,3})\s*pages?\b",
+        normalized,
+    )
+    if page_match:
+        maximum_pages = int(page_match.group(1))
+
+    count = max(1, section_count)
+    if total_word_limit:
+        target_total = max(count * 180, int(total_word_limit * 0.85))
+        source = f"template total-word limit ({total_word_limit})"
+    elif maximum_pages:
+        target_total = max(count * 180, int(maximum_pages * 350 * 0.70))
+        source = f"template page limit ({maximum_pages} pages)"
+    else:
+        target_total = count * 450
+        source = "section count (no template word/page limit found)"
+
+    words_per_section = target_total / count
+    minimum_words = max(180, min(650, round(words_per_section * 0.80)))
+    maximum_words = max(
+        minimum_words,
+        min(750, round(words_per_section * 1.05)),
+    )
+    return minimum_words, maximum_words, source
 
 
 def _proposal_structure(
@@ -62,14 +150,29 @@ def _proposal_structure(
     rules = response_template_rules if isinstance(response_template_rules, dict) else {}
     raw_sections = rules.get("section_order") or rules.get("required_sections") or []
     using_client_template = bool(raw_sections)
-    selected_sections = sections or _proposal_sections(rules)
+    all_sections = _proposal_sections(rules)
+    selected_sections = sections or all_sections
+    minimum_words, maximum_words, budget_source = _template_section_word_target(
+        rules,
+        len(all_sections),
+    )
 
     lines = [
-        "CLIENT TEMPLATE — USE THESE EXACT HEADINGS AND THIS EXACT ORDER:"
+        "CLIENT TEMPLATE - USE THESE EXACT HEADINGS AND THIS EXACT ORDER:"
         if using_client_template
-        else "NO CLIENT SECTION OUTLINE WAS FOUND — USE THESE DEFAULT HEADINGS:",
-        *[f"## {section}" for section in selected_sections],
+        else "NO CLIENT SECTION OUTLINE WAS FOUND â€” USE THESE DEFAULT HEADINGS:",
+        (
+            f"Per-section word budget: {minimum_words}-{maximum_words} words; "
+            f"derived from {budget_source}."
+        ),
     ]
+    for section in selected_sections:
+        lines.extend(
+            [
+                f"## {section}",
+                f"Target length: {minimum_words}-{maximum_words} words.",
+            ]
+        )
 
     instructions = rules.get("instructions") or rules.get("template_instructions") or []
     formatting = rules.get("formatting_requirements") or []
@@ -338,7 +441,10 @@ def generation_agent(state: dict, *, rag=None, knowledge=None) -> dict:
     revision_feedback = state.get("quality_report") or "(first generation attempt)"
     attempt_number = state.get("generation_attempts", 0) + 1
     previous_draft = state.get("previous_draft", "")
-    batch_size = max(1, int(os.environ.get("GENERATION_BATCH_SIZE", "3")))
+    # One section per call prevents a detailed early section from consuming the
+    # output allowance reserved for later headings. A 1,600-token response is
+    # ample for the largest 700-word section and remains below hosted limits.
+    batch_size = 1
     batch_max_tokens = min(
         1600,
         max(512, int(os.environ.get("GENERATION_BATCH_MAX_TOKENS", "1600"))),
@@ -445,12 +551,20 @@ def generation_agent(state: dict, *, rag=None, knowledge=None) -> dict:
             },
             prompt_max_chars,
         )
+        # Preserve the exact fitted evidence sent to the model for this section.
+        # Quality must judge the generated claims against this context, not
+        # against a different retrieval or a later top-level truncation.
         batch_evidence = {
             "sections": sections,
             "tender_excerpts": fitted_context["tender_excerpts"],
             "response_template_excerpts": fitted_context[
                 "response_template_excerpts"
             ],
+            "requirements": fitted_context["requirements"],
+            "research_summary": fitted_context["research_summary"],
+            "project_references": fitted_context["project_references"],
+            "cv_excerpts": fitted_context["cv_excerpts"],
+            "past_proposals": fitted_context["past_proposals"],
             "prompt_chars": len(prompt),
         }
         generation_evidence["section_batches"].append(batch_evidence)

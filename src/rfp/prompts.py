@@ -120,10 +120,7 @@ add an alternative top-level outline. Map the tender requirements, deliverables,
 timeline, risks, quality controls, security measures, team evidence, and commercial constraints \
 into the most appropriate client-defined sections.
 
-Keep EACH assigned section between 180 and 300 words unless a compliance table genuinely needs \
-more space. Reserve enough response space for every assigned heading: never expand an early \
-section at the cost of omitting a later one. Emit every exact Markdown heading even when its \
-content can only be a transparent placeholder because evidence is missing.
+Follow the target word range printed beneath each assigned heading. Use the range to produce substantive analysis, concrete activities, outputs, acceptance criteria, dependencies, controls, and traceability where they are relevant to that section. Tables count toward the target. Never pad a section with unsupported claims or repetitive filler merely to reach its target; when the required company evidence is missing, use the mandated transparent placeholder and keep that part concise. Emit every exact Markdown heading assigned to this batch.
 
 For team content, use ONLY the CV excerpts above. If no CV excerpts were provided, include the \
 clearly labelled placeholder "[TEAM PROFILES TO BE COMPLETED — no matching CVs found in the \
@@ -149,6 +146,18 @@ plans, assumptions, and placeholders.
 
 EVIDENCE AVAILABLE TO THE WRITER:
 {evidence}
+
+EVIDENCE PROVENANCE RULES:
+- company_knowledge.cv_excerpts is valid evidence for named staff, roles, skills,
+  certifications, and experience when the excerpt explicitly states the fact.
+- company_knowledge.project_references is valid evidence for the bidder's past
+  projects and capabilities when the excerpt explicitly states the fact.
+- company_knowledge.past_proposals is primarily style/structure context; treat
+  it as factual company evidence only when it explicitly contains the claim.
+- market_research is external context only. Never use it as proof of the
+  bidding company's staff, experience, projects, clients, or certifications.
+- A claim supported by any supplied company or tender evidence is grounded;
+  do not mark it unsupported merely because it came from retrieved knowledge.
 
 PROPOSAL TO REVIEW:
 {draft}
