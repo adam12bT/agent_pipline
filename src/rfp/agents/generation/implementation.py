@@ -21,6 +21,35 @@ REFERENCES_WORKSPACE = "company-project-references"
 
 logger = logging.getLogger(__name__)
 
+_MOJIBAKE_REPLACEMENTS = {
+    "â€‘": "‑",
+    "â€“": "–",
+    "â€”": "—",
+    "â€™": "’",
+    "â€œ": "“",
+    "â€": "”",
+    "â€¦": "…",
+    "â‰¤": "≤",
+    "â‰¥": "≥",
+    "â‚¬": "€",
+    "Ã€": "À",
+    "Ã‰": "É",
+    "Ã©": "é",
+    "Ã¨": "è",
+    "Ãª": "ê",
+    "Ã ": "à",
+    "Ã§": "ç",
+    "Â ": "\u00a0",
+}
+
+
+def _repair_mojibake(value: str) -> str:
+    """Repair common UTF-8-as-Windows-1252 sequences without touching valid text."""
+    repaired = value
+    for broken, replacement in _MOJIBAKE_REPLACEMENTS.items():
+        repaired = repaired.replace(broken, replacement)
+    return repaired
+
 def _proposal_sections(response_template_rules: dict) -> list[str]:
     rules = resolve_response_template({"response_template": response_template_rules})
     raw_sections = rules.get("section_order") or rules.get("required_sections") or []
@@ -245,8 +274,17 @@ def _normalize_batch_headings(draft: str, sections: list[str]) -> tuple[str, lis
 
 
 def _split_batch_sections(draft: str, sections: list[str]) -> dict[str, str]:
-    """Split a generated Markdown batch into exact template-section blocks."""
+    """Split assigned sections and stop at every unexpected peer heading.
+
+    A model occasionally continues with headings copied from the full template.
+    Those headings must not become the body of the section requested by this call.
+    """
     lines = draft.splitlines()
+    heading_indexes = [
+        index
+        for index, line in enumerate(lines)
+        if re.match(r"^\s{0,3}#{1,2}\s+", line)
+    ]
     starts: list[tuple[int, str]] = []
     for index, line in enumerate(lines):
         if not re.match(r"^\s{0,3}#{1,6}\s+", line):
@@ -266,10 +304,18 @@ def _split_batch_sections(draft: str, sections: list[str]) -> dict[str, str]:
             starts.append((index, matched))
 
     content: dict[str, str] = {}
-    for position, (start, section) in enumerate(starts):
-        end = starts[position + 1][0] if position + 1 < len(starts) else len(lines)
+    for start, section in starts:
+        end = next((index for index in heading_indexes if index > start), len(lines))
         content[section] = "\n".join(lines[start:end]).strip()
     return content
+
+
+def _section_body(block: str) -> str:
+    """Return section body content without its first Markdown heading."""
+    lines = block.strip().splitlines()
+    if lines and re.match(r"^\s{0,3}#{1,6}\s+", lines[0]):
+        lines = lines[1:]
+    return "\n".join(lines).strip()
 
 
 def _merge_section_drafts(
@@ -587,6 +633,7 @@ def generation_agent(state: dict, *, rag=None, knowledge=None) -> dict:
             ).strip()
             if not batch_draft:
                 raise ValueError("the model returned an empty section batch")
+            batch_draft = _repair_mojibake(batch_draft)
             batch_draft, unmatched_headings = _normalize_batch_headings(
                 batch_draft, sections
             )
@@ -597,14 +644,25 @@ def generation_agent(state: dict, *, rag=None, knowledge=None) -> dict:
                     len(batches),
                     unmatched_headings,
                 )
-            batch_evidence["draft"] = batch_draft
-            draft_parts.append(batch_draft)
             generated_sections = _split_batch_sections(batch_draft, sections)
+            # Keep only the sections assigned to this request. This prevents an
+            # outline continuation from leaking into the preceding card/draft.
+            batch_draft = "\n\n".join(
+                generated_sections[section]
+                for section in sections
+                if generated_sections.get(section, "").strip()
+            )
+            batch_evidence["draft"] = batch_draft
+            if batch_draft:
+                draft_parts.append(batch_draft)
             replacement_sections.update(generated_sections)
             mark_batch_completed(
                 run_id,
                 batch_number,
-                generated_sections,
+                {
+                    section: _section_body(generated_sections.get(section, ""))
+                    for section in sections
+                },
             )
             logger.info(
                 "Generation attempt %d completed batch %d/%d (%s)",

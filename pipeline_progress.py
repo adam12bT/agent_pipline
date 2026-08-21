@@ -9,10 +9,16 @@ running, without coupling an agent to FastAPI or the backend run store.
 from copy import deepcopy
 import threading
 import time
+import re
 
 
 _PROGRESS: dict[str, dict] = {}
 _LOCK = threading.Lock()
+_MIN_SECTION_BODY_WORDS = 12
+
+
+def _word_count(value: str) -> int:
+    return len(re.findall(r"\b[\w'-]+\b", value, flags=re.UNICODE))
 
 
 def start_generation(run_id: str | None, batches: list[list[str]]) -> None:
@@ -62,8 +68,13 @@ def mark_batch_completed(
         for section in progress["sections"]:
             if section["batch"] != batch_number:
                 continue
-            section["content"] = section_content.get(section["title"], "")
-            section["status"] = "complete" if section["content"].strip() else "incomplete"
+            section["content"] = section_content.get(section["title"], "").strip()
+            section["word_count"] = _word_count(section["content"])
+            section["status"] = (
+                "complete"
+                if section["word_count"] >= _MIN_SECTION_BODY_WORDS
+                else "incomplete"
+            )
         progress["draft"] = "\n\n".join(
             section["content"] for section in progress["sections"] if section["content"].strip()
         )
@@ -77,7 +88,13 @@ def finish_generation(run_id: str | None, *, failed: bool = False) -> None:
         progress = _PROGRESS.get(run_id)
         if not progress:
             return
-        progress["status"] = "failed" if failed else "complete"
+        has_incomplete_sections = any(
+            section.get("status") in {"waiting", "generating", "incomplete", "failed"}
+            for section in progress["sections"]
+        )
+        progress["status"] = (
+            "failed" if failed else "incomplete" if has_incomplete_sections else "complete"
+        )
         progress["updated_at"] = time.time()
 
 
@@ -85,4 +102,3 @@ def get_progress(run_id: str) -> dict | None:
     with _LOCK:
         progress = _PROGRESS.get(run_id)
         return deepcopy(progress) if progress else None
-

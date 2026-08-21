@@ -42,6 +42,9 @@ logger = logging.getLogger(__name__)
 # A non-empty draft is the only universal length rule. Section count and order
 # come from the uploaded template or the canonical fallback template.
 MIN_WORD_COUNT = 1
+MIN_SECTION_BODY_WORDS = max(
+    1, int(os.environ.get("QUALITY_MIN_SECTION_BODY_WORDS", "12"))
+)
 MIN_GROUNDEDNESS_SCORE = float(os.environ.get("QUALITY_MIN_GROUNDEDNESS", "0.75"))
 MIN_COHERENCE_SCORE = float(os.environ.get("QUALITY_MIN_COHERENCE", "0.75"))
 QUALITY_EVIDENCE_MAX_CHARS = min(
@@ -178,11 +181,27 @@ def _check_section_order(draft: str, section_order: list[str]) -> list[str]:
     return section_order
 
 
+def _duplicate_sections(draft: str, sections: list[str]) -> list[str]:
+    """Return template sections whose Markdown heading occurs more than once."""
+    heading_titles = [
+        _canonical_section_title(line)
+        for line in draft.splitlines()
+        if re.match(r"^\s{0,3}#{1,2}\s+", line)
+    ]
+    return [
+        section
+        for section in sections
+        if heading_titles.count(_canonical_section_title(section)) > 1
+    ]
+
+
 def _section_blocks(draft: str, sections: list[str]) -> dict[str, str]:
     """Split a proposal into template sections for localized repair decisions."""
     lines = draft.splitlines()
     starts: list[tuple[int, str]] = []
     for index, line in enumerate(lines):
+        if not re.match(r"^\s{0,3}#{1,2}\s+", line):
+            continue
         normalized = _canonical_section_title(line)
         matched = next(
             (
@@ -200,6 +219,26 @@ def _section_blocks(draft: str, sections: list[str]) -> dict[str, str]:
         end = starts[position + 1][0] if position + 1 < len(starts) else len(lines)
         blocks[section] = "\n".join(lines[start:end]).strip()
     return blocks
+
+
+def _section_body(block: str) -> str:
+    lines = block.strip().splitlines()
+    if lines and re.match(r"^\s{0,3}#{1,6}\s+", lines[0]):
+        lines = lines[1:]
+    return "\n".join(lines).strip()
+
+
+def _insubstantial_sections(draft: str, sections: list[str]) -> list[str]:
+    """Detect present headings that contain no meaningful proposal body."""
+    blocks = _section_blocks(draft, sections)
+    failed = []
+    for section in sections:
+        block = blocks.get(section, "")
+        body = _section_body(block)
+        body_words = len(re.findall(r"\b[\w'-]+\b", body, flags=re.UNICODE))
+        if block and body_words < MIN_SECTION_BODY_WORDS:
+            failed.append(section)
+    return failed
 
 
 def _claim_text(finding) -> str:
@@ -230,12 +269,19 @@ def _identify_failed_sections(
     sections: list[str],
     missing_sections: list[str],
     out_of_order_sections: list[str],
+    duplicate_sections: list[str],
+    incomplete_sections: list[str],
     quality_findings: dict,
     grounding_review: dict,
     word_count: int,
 ) -> list[str]:
     """Map quality failures to the smallest safe set of template sections."""
-    failed = set(missing_sections) | set(out_of_order_sections)
+    failed = (
+        set(missing_sections)
+        | set(out_of_order_sections)
+        | set(duplicate_sections)
+        | set(incomplete_sections)
+    )
     unmapped_contradiction = False
 
     for field in ("unsupported_claims", "contradictions"):
@@ -580,6 +626,8 @@ def quality_agent(state: dict, *, scanner=None) -> dict:
     required_sections, section_order = _template_sections(state)
     missing_sections = _check_template_compliance(draft, required_sections)
     out_of_order_sections = _check_section_order(draft, section_order)
+    duplicate_sections = _duplicate_sections(draft, section_order)
+    incomplete_sections = _insubstantial_sections(draft, section_order)
     quality_findings = (
         scanner.scan(draft)
         if scanner is not None
@@ -601,6 +649,8 @@ def quality_agent(state: dict, *, scanner=None) -> dict:
         sections=section_order,
         missing_sections=missing_sections,
         out_of_order_sections=out_of_order_sections,
+        duplicate_sections=duplicate_sections,
+        incomplete_sections=incomplete_sections,
         quality_findings=quality_findings,
         grounding_review=grounding_review,
         word_count=word_count,
@@ -613,6 +663,13 @@ def quality_agent(state: dict, *, scanner=None) -> dict:
         notes.append(f"Missing expected sections: {missing_sections}")
     if out_of_order_sections:
         notes.append(f"Template sections are out of order: {out_of_order_sections}")
+    if duplicate_sections:
+        notes.append(f"Duplicate template sections: {duplicate_sections}")
+    if incomplete_sections:
+        notes.append(
+            "Sections without substantive body content "
+            f"(minimum {MIN_SECTION_BODY_WORDS} words): {incomplete_sections}"
+        )
     if quality_findings:
         notes.append(f"LLM Guard flagged: {quality_findings}")
     score_threshold_failed = (
@@ -647,6 +704,8 @@ def quality_agent(state: dict, *, scanner=None) -> dict:
         word_count >= MIN_WORD_COUNT
         and not missing_sections
         and not out_of_order_sections
+        and not duplicate_sections
+        and not incomplete_sections
         and not quality_findings
         and not grounding_failed
     )
@@ -655,6 +714,8 @@ def quality_agent(state: dict, *, scanner=None) -> dict:
         "word_count": word_count,
         "missing_sections": missing_sections,
         "out_of_order_sections": out_of_order_sections,
+        "duplicate_sections": duplicate_sections,
+        "incomplete_sections": incomplete_sections,
         "failed_sections": failed_sections,
         "required_sections": required_sections,
         "quality_findings": quality_findings,

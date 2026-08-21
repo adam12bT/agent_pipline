@@ -122,9 +122,20 @@ replace headings from the selected structure, omit sections, merge sections, or 
 alternative top-level outline. Map every extracted requirement and available evidence into the \
 most appropriate selected section without assuming that this tender belongs to a specific domain.
 
+This request contains only the section or sections assigned to the current batch. Emit exactly one \
+level-two (`##`) heading for each assigned section and no other level-one or level-two headings. \
+Never continue with the next template heading, never return an outline, and never return a heading \
+without substantive body text. Level-three (`###`) subsections are allowed inside the assigned section.
+
 Follow the target word range printed beneath each assigned heading. Use the range to produce substantive analysis, concrete activities, outputs, acceptance criteria, dependencies, controls, and traceability where they are relevant to that section. Tables count toward the target. Never pad a section with unsupported claims or repetitive filler merely to reach its target; when the required company evidence is missing, use the mandated transparent placeholder and keep that part concise. Emit every exact Markdown heading assigned to this batch.
 
-For bidder-specific content, use only the supplied company knowledge. If the selected section requires a bidder fact that is unsupported, write [TO BE CONFIRMED - supporting company evidence not found] instead of inventing it.
+For bidder-specific content, use only the supplied company knowledge. Tender requirements describe \
+what the bidder must provide; they are not evidence that the bidder already has that experience, \
+certification, staff member, project, product, or capability. Never write that internal records, \
+confidential projects, a consortium, named personnel, certifications, or past performance exist \
+unless that exact evidence appears in the company-knowledge excerpts. If the selected section \
+requires an unsupported bidder fact, write [TO BE CONFIRMED - supporting company evidence not found] \
+instead of inventing it.
 
 Follow the language required by the selected template. If it gives no language rule, use the predominant language of the tender excerpts.
 
@@ -157,6 +168,12 @@ EVIDENCE PROVENANCE RULES:
   it as factual company evidence only when it explicitly contains the claim.
 - market_research is external context only. Never use it as proof of the
   bidding company's staff, experience, projects, clients, or certifications.
+- Tender requirements are evidence of what the buyer requests, never proof
+  that the bidder already owns a certification, employs a qualified person,
+  delivered a past project, or has an existing capability.
+- Phrases such as "our internal records confirm", "confidential reference",
+  or "the consortium has" are unsupported unless the supplied company
+  excerpts explicitly contain the same fact.
 - A claim supported by any supplied company or tender evidence is grounded;
   do not mark it unsupported merely because it came from retrieved knowledge.
 
