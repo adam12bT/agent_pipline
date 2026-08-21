@@ -147,6 +147,18 @@ plans, assumptions, and placeholders.
 EVIDENCE AVAILABLE TO THE WRITER:
 {evidence}
 
+EVIDENCE PROVENANCE RULES:
+- company_knowledge.cv_excerpts is valid evidence for named staff, roles, skills,
+  certifications, and experience when the excerpt explicitly states the fact.
+- company_knowledge.project_references is valid evidence for the bidder's past
+  projects and capabilities when the excerpt explicitly states the fact.
+- company_knowledge.past_proposals is primarily style/structure context; treat
+  it as factual company evidence only when it explicitly contains the claim.
+- market_research is external context only. Never use it as proof of the
+  bidding company's staff, experience, projects, clients, or certifications.
+- A claim supported by any supplied company or tender evidence is grounded;
+  do not mark it unsupported merely because it came from retrieved knowledge.
+
 PROPOSAL TO REVIEW:
 {draft}
 

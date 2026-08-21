@@ -325,7 +325,60 @@ class ResponseTemplateQualityTests(unittest.TestCase):
         self.assertIn("draft 0", groups[0][1])
         self.assertIn("draft 1", groups[0][1])
         self.assertIn("draft 2", groups[0][1])
-        self.assertNotIn("draft", groups[0][0]["section_batches"][0])
+        self.assertNotIn("draft", groups[0][0]["section_evidence"][0])
+
+    def test_quality_review_prefers_exact_batch_company_evidence(self):
+        section_batches = [
+            {
+                "sections": ["Proposed Team"],
+                "draft": "Alice is the proposed security architect.",
+                "project_references": "batch project reference",
+                "cv_excerpts": "Alice is a certified security architect.",
+                "past_proposals": "batch proposal example",
+                "requirements": "Security architect required.",
+                "research_summary": "external market context",
+                "tender_excerpts": "Tender requires a security architect.",
+                "response_template_excerpts": "Describe the proposed team.",
+            }
+        ]
+        groups = _review_groups(
+            {
+                "generation_evidence": {
+                    "section_batches": section_batches,
+                    "cv_excerpts": "stale top-level CV",
+                    "project_references": "stale top-level reference",
+                }
+            },
+            "full draft",
+        )
+
+        company = groups[0][0]["company_knowledge"]
+        self.assertIn("Alice", company["cv_excerpts"])
+        self.assertIn("batch project", company["project_references"])
+        self.assertNotIn("stale", company["cv_excerpts"])
+        self.assertEqual(
+            groups[0][0]["market_research"]["summary"],
+            "external market context",
+        )
+
+    def test_quality_review_adds_groups_when_draft_would_be_truncated(self):
+        section_batches = [
+            {
+                "sections": [f"S{index}"],
+                "draft": f"section-{index} " + ("detail " * 650),
+            }
+            for index in range(4)
+        ]
+
+        groups = _review_groups(
+            {"generation_evidence": {"section_batches": section_batches}},
+            "full draft",
+        )
+
+        self.assertGreater(len(groups), 1)
+        reviewed = "\n".join(group_draft for _, group_draft in groups)
+        for index in range(4):
+            self.assertIn(f"section-{index}", reviewed)
 
     def test_quality_evaluator_error_does_not_retry_generation(self):
         draft = "\n".join(

@@ -551,12 +551,20 @@ def generation_agent(state: dict, *, rag=None, knowledge=None) -> dict:
             },
             prompt_max_chars,
         )
+        # Preserve the exact fitted evidence sent to the model for this section.
+        # Quality must judge the generated claims against this context, not
+        # against a different retrieval or a later top-level truncation.
         batch_evidence = {
             "sections": sections,
             "tender_excerpts": fitted_context["tender_excerpts"],
             "response_template_excerpts": fitted_context[
                 "response_template_excerpts"
             ],
+            "requirements": fitted_context["requirements"],
+            "research_summary": fitted_context["research_summary"],
+            "project_references": fitted_context["project_references"],
+            "cv_excerpts": fitted_context["cv_excerpts"],
+            "past_proposals": fitted_context["past_proposals"],
             "prompt_chars": len(prompt),
         }
         generation_evidence["section_batches"].append(batch_evidence)
