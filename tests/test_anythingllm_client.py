@@ -1,13 +1,22 @@
 import unittest
 from unittest.mock import Mock, patch
 
-import anythingllm_client as client_module
-from anythingllm_client import AnythingLLMClient
+from rfp.adapters import anythingllm_client as client_module
+from rfp.adapters.anythingllm_client import AnythingLLMClient
 
 
 class AnythingLLMRetryTests(unittest.TestCase):
     def setUp(self):
         client_module._NEXT_REQUEST_AT = 0.0
+
+    def test_base_url_is_resolved_when_client_is_created(self):
+        with patch.dict(
+            "os.environ",
+            {"ANYTHINGLLM_BASE_URL": "https://hosted.example/api"},
+        ):
+            client = AnythingLLMClient()
+
+        self.assertEqual(client.base_url, "https://hosted.example/api")
 
     def test_workspace_creation_retries_after_429(self):
         rate_limited = Mock(status_code=429, headers={"Retry-After": "0"})
@@ -21,7 +30,7 @@ class AnythingLLMRetryTests(unittest.TestCase):
         client.request_min_interval_seconds = 0
 
         with patch(
-            "anythingllm_client.requests.request",
+            "rfp.adapters.anythingllm_client.requests.request",
             side_effect=[rate_limited, created],
         ) as request:
             result = client.create_workspace("rfp-test")

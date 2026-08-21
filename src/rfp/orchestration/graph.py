@@ -1,6 +1,8 @@
 """The only module that composes all six independently contracted agents."""
 
+from copy import deepcopy
 from functools import partial
+import time
 
 from langgraph.graph import END, StateGraph
 
@@ -28,6 +30,88 @@ from rfp.orchestration.routing import (
     quality_status,
 )
 from rfp.orchestration.state import PipelineState
+from providers.telemetry import collect_llm_usage
+
+
+_USAGE_COUNTERS = (
+    "request_count",
+    "successful_calls",
+    "failed_calls",
+    "prompt_tokens",
+    "completion_tokens",
+    "total_tokens",
+    "duration_seconds",
+)
+
+
+def _add_usage(target: dict, addition: dict) -> dict:
+    """Accumulate provider telemetry while preserving individual call records."""
+
+    for key in _USAGE_COUNTERS:
+        target[key] = target.get(key, 0) + addition.get(key, 0)
+    target.setdefault("calls", []).extend(deepcopy(addition.get("calls") or []))
+    providers = target.setdefault("providers", {})
+    for provider_name, values in (addition.get("providers") or {}).items():
+        provider = providers.setdefault(
+            provider_name,
+            {
+                "request_count": 0,
+                "successful_calls": 0,
+                "failed_calls": 0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+                "duration_seconds": 0.0,
+                "models": [],
+            },
+        )
+        for key in _USAGE_COUNTERS:
+            provider[key] = provider.get(key, 0) + values.get(key, 0)
+        for model in values.get("models") or []:
+            if model not in provider["models"]:
+                provider["models"].append(model)
+    return target
+
+
+def _instrumented(
+    state: PipelineState,
+    *,
+    node_name: str,
+    runner,
+    dependencies: PipelineDependencies,
+) -> dict:
+    started_at = time.time()
+    started = time.perf_counter()
+    with collect_llm_usage() as llm_usage:
+        result = runner(state, dependencies=dependencies)
+    ended_at = time.time()
+    duration = max(0.0, time.perf_counter() - started)
+
+    telemetry = deepcopy(state.get("telemetry") or {})
+    agents = telemetry.setdefault("agents", {})
+    agent = agents.setdefault(
+        node_name,
+        {"attempts": [], "duration_seconds": 0.0, "llm_usage": {}},
+    )
+    attempt = {
+        "attempt": len(agent["attempts"]) + 1,
+        "started_at_epoch": started_at,
+        "ended_at_epoch": ended_at,
+        "duration_seconds": duration,
+        "llm_usage": deepcopy(llm_usage),
+    }
+    agent["attempts"].append(attempt)
+    agent["duration_seconds"] = agent.get("duration_seconds", 0.0) + duration
+    agent["llm_usage"] = _add_usage(agent.get("llm_usage") or {}, llm_usage)
+    telemetry["updated_at_epoch"] = ended_at
+    telemetry["total_duration_seconds"] = max(
+        0.0, ended_at - float(telemetry.get("started_at_epoch", started_at))
+    )
+    telemetry["llm_usage"] = _add_usage(
+        telemetry.get("llm_usage") or {}, llm_usage
+    )
+    result["telemetry"] = telemetry
+    return result
 
 
 def _verifier(state: PipelineState, *, dependencies: PipelineDependencies) -> dict:
@@ -54,7 +138,6 @@ def _research(state: PipelineState, *, dependencies: PipelineDependencies) -> di
     output = dump_model(
         run_research(
             research_input(state),
-            rag=dependencies.rag,
             web=dependencies.web,
         )
     )
@@ -97,18 +180,36 @@ def _quality(state: PipelineState, *, dependencies: PipelineDependencies) -> dic
 def build_graph(dependencies: PipelineDependencies | None = None):
     dependencies = dependencies or PipelineDependencies.defaults()
     graph = StateGraph(PipelineState)
-    graph.add_node("verifier", partial(_verifier, dependencies=dependencies))
+    graph.add_node(
+        "verifier",
+        partial(
+            _instrumented,
+            node_name="verifier",
+            runner=_verifier,
+            dependencies=dependencies,
+        ),
+    )
     graph.add_node("dispatch", _dispatch)
-    graph.add_node("extraction", partial(_extraction, dependencies=dependencies))
-    graph.add_node("research", partial(_research, dependencies=dependencies))
-    graph.add_node("generation", partial(_generation, dependencies=dependencies))
-    graph.add_node("security", partial(_security, dependencies=dependencies))
-    graph.add_node("quality", partial(_quality, dependencies=dependencies))
+    for node_name, runner in (
+        ("extraction", _extraction),
+        ("research", _research),
+        ("generation", _generation),
+        ("security", _security),
+        ("quality", _quality),
+    ):
+        graph.add_node(
+            node_name,
+            partial(
+                _instrumented,
+                node_name=node_name,
+                runner=runner,
+                dependencies=dependencies,
+            ),
+        )
     graph.set_entry_point("verifier")
     graph.add_conditional_edges("verifier", after_verifier, {"dispatch": "dispatch", END: END})
     graph.add_edge("dispatch", "extraction")
-    graph.add_edge("dispatch", "research")
-    graph.add_edge("extraction", "generation")
+    graph.add_edge("extraction", "research")
     graph.add_edge("research", "generation")
     graph.add_conditional_edges("generation", after_generation, {"security": "security", END: END})
     graph.add_conditional_edges("security", after_security, {"quality": "quality", END: END})

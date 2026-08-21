@@ -1,6 +1,7 @@
 """Namespaced internal state and the stable public API projection."""
 
 import operator
+import time
 from typing import Annotated, Any, TypedDict
 
 
@@ -12,6 +13,7 @@ class PipelineState(TypedDict, total=False):
     generation: dict[str, Any]
     security: dict[str, Any]
     quality: dict[str, Any]
+    telemetry: dict[str, Any]
     control: dict[str, Any]
     errors: Annotated[list[str], operator.add]
 
@@ -22,6 +24,7 @@ def initial_pipeline_state(
     *,
     run_id: str | None = None,
 ) -> PipelineState:
+    started_at = time.time()
     return {
         "request": {
             "run_id": run_id,
@@ -29,6 +32,28 @@ def initial_pipeline_state(
             "response_template_file_path": response_template_file_path,
         },
         "control": {"status": "running"},
+        "telemetry": {
+            "started_at_epoch": started_at,
+            "updated_at_epoch": started_at,
+            "total_duration_seconds": 0.0,
+            "agents": {},
+            "llm_usage": {
+                "request_count": 0,
+                "successful_calls": 0,
+                "failed_calls": 0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+                "duration_seconds": 0.0,
+                "providers": {},
+                "calls": [],
+            },
+            "notes": [
+                "Token counts include only providers that return usage metadata.",
+                "GPT Researcher token totals are captured through LangChain when "
+                "its active model integration emits usage metadata.",
+            ],
+        },
         "errors": [],
     }
 

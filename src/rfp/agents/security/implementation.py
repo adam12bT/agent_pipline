@@ -245,7 +245,6 @@ def security_agent(state: dict, *, scanner=None) -> dict:
         "security_report": security_report,
     }
     if not passed:
-        result["status"] = "security_blocked"
         logger.warning("Security scan BLOCKED this draft, escalating to human review: %s", findings)
     else:
         logger.info("Security scan passed.")

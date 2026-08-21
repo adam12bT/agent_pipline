@@ -13,7 +13,7 @@ import logging
 import os
 import re
 
-from anythingllm_client import AnythingLLMClient
+from .anythingllm_client import AnythingLLMClient
 
 logger = logging.getLogger(__name__)
 

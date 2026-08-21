@@ -70,6 +70,7 @@ def _new_run_record(
         "completed_stages": [],
         "internal_state": internal_state,
         "state": flatten_pipeline_state(internal_state),
+        "telemetry": dict(internal_state.get("telemetry") or {}),
         "error": None,
     }
 
@@ -163,6 +164,16 @@ def _execute_run(run_id: str):
     try:
         pipeline = build_graph()
         cumulative_state = dict(record["internal_state"])
+        execution_started = time.time()
+        telemetry = dict(cumulative_state.get("telemetry") or {})
+        telemetry.update(
+            {
+                "started_at_epoch": execution_started,
+                "updated_at_epoch": execution_started,
+                "total_duration_seconds": 0.0,
+            }
+        )
+        cumulative_state["telemetry"] = telemetry
         completed_stages = []
 
         for step in pipeline.stream(cumulative_state):
@@ -216,6 +227,7 @@ def _execute_run(run_id: str):
                     run_id,
                     internal_state=cumulative_state,
                     state=public_state,
+                    telemetry=dict(cumulative_state.get("telemetry") or {}),
                     current_stage=node_name,
                     completed_stages=completed_stages,
                     run_status=run_status,

@@ -48,6 +48,7 @@ full = [
 
 [project.scripts]
 rfp-pipeline = "rfp.cli:main"
+rfp-compare = "rfp.compatibility_cli:main"
 
 [tool.setuptools]
 include-package-data = true
@@ -73,13 +74,9 @@ packages = [
   "providers",
 ]
 py-modules = [
-  "anythingllm_client",
-  "company_knowledge",
-  "extractor_client",
   "ingest_company_corpus",
   "logging_config",
   "pipeline_progress",
-  "retrieval",
 ]
 
 [tool.setuptools.package-dir]

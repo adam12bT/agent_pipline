@@ -1,4 +1,4 @@
-"""Client for the standalone OCR and structured-document extraction service."""
+"""Client adapter for the standalone structured-document extraction service."""
 
 from __future__ import annotations
 

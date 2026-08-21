@@ -8,9 +8,8 @@ so this is a defensive double-check, not the primary gate).
 Checks the draft's QUALITY, not its safety: source groundedness, coherence,
 template compliance, length, tone, and refusal detection. The evidence review
 uses the exact RAG/research context preserved by the Generation agent. Unlike
-the Security agent, a failure here is
-GRADED — it triggers a regeneration attempt (up to MAX_GENERATION_ATTEMPTS)
-via the "retry_generation" status rather than a hard stop.
+the Security agent, it returns a verdict and report only. Retry and terminal
+status policy belongs exclusively to the orchestrator.
 
 When explicitly enabled, optionally uses LLM Guard's:
   - `Toxicity`      -> tone/appropriateness scoring
@@ -49,9 +48,6 @@ REQUIRED_SECTIONS = [
 ]
 
 MIN_WORD_COUNT = 150
-MAX_GENERATION_ATTEMPTS = max(
-    1, int(os.environ.get("MAX_GENERATION_ATTEMPTS", "1"))
-)
 MIN_GROUNDEDNESS_SCORE = float(os.environ.get("QUALITY_MIN_GROUNDEDNESS", "0.75"))
 MIN_COHERENCE_SCORE = float(os.environ.get("QUALITY_MIN_COHERENCE", "0.75"))
 QUALITY_EVIDENCE_MAX_CHARS = min(
@@ -551,30 +547,17 @@ def quality_agent(state: dict, *, scanner=None) -> dict:
         "notes": notes,
     }
 
-    attempts = state.get("generation_attempts", 0)
     if evaluator_error:
-        status = "failed"
         logger.error(
-            "Quality evaluator failed; stopping without proposal regeneration: %s",
+            "Quality evaluator failed: %s",
             grounding_review.get("evaluation_error"),
         )
-    elif not passed and attempts < MAX_GENERATION_ATTEMPTS:
-        status = "retry_generation"
-        logger.info(
-            "Quality check failed (attempt %d/%d) — retrying generation. Notes: %s",
-            attempts, MAX_GENERATION_ATTEMPTS, notes,
-        )
     elif not passed:
-        status = "failed"
-        logger.warning(
-            "Quality check failed after %d attempts — giving up. Notes: %s", attempts, notes,
-        )
+        logger.warning("Quality check failed. Notes: %s", notes)
     else:
-        status = "done"
         logger.info("Quality check passed.")
 
     return {
         "quality_passed": passed,
         "quality_report": quality_report,
-        "status": status,
     }

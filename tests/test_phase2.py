@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 
 import ingest_company_corpus as ingestion
-import retrieval
+from rfp.adapters import retrieval
 
 
 class FakeSearchClient:
@@ -24,6 +24,17 @@ class FakeIngestionClient:
     def upload_document(self, file_path, workspace_slug):
         self.uploads.append((file_path, workspace_slug))
         return {"documents": [{"location": os.path.basename(file_path)}]}
+
+
+class FakeIngestionAdapter:
+    def __init__(self, client):
+        self.client = client
+
+    def ensure_ready(self):
+        return {"company-past-proposals": {"created": False}}
+
+    def upload_knowledge(self, category, file_path):
+        return self.client.upload_document(file_path, f"company-{category.replace('_', '-')}")
 
 
 class RetrievalTests(unittest.TestCase):
@@ -68,11 +79,10 @@ class IngestionTests(unittest.TestCase):
                 patch.object(ingestion, "CORPUS_ROOT", corpus_root),
                 patch.object(ingestion, "MANIFEST_PATH", manifest_path),
                 patch.object(ingestion, "FOLDER_TO_WORKSPACE", folder_map),
-                patch.object(ingestion, "AnythingLLMClient", return_value=fake_client),
                 patch.object(
                     ingestion,
-                    "ensure_company_workspaces",
-                    return_value={"company-past-proposals": {"created": False}},
+                    "AnythingLLMAdapter",
+                    return_value=FakeIngestionAdapter(fake_client),
                 ),
             ):
                 first = ingestion.ingest_all()

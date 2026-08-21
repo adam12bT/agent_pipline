@@ -4,8 +4,8 @@ import argparse
 
 from dotenv import load_dotenv
 
-from company_knowledge import ensure_company_workspaces
 from logging_config import configure_logging
+from rfp.adapters import AnythingLLMAdapter
 from rfp.orchestration.graph import build_graph
 from rfp.orchestration.state import flatten_pipeline_state, initial_pipeline_state
 
@@ -16,7 +16,7 @@ def run(tender_file_path: str, response_template_file_path: str) -> dict:
     configure_logging()
 
     print("Ensuring company knowledge base workspaces exist...")
-    status = ensure_company_workspaces()
+    status = AnythingLLMAdapter().ensure_ready()
     for slug, info in status.items():
         description = "created; run ingest_company_corpus.py to fill it" if info["created"] else "already exists"
         print(f"  {slug}: {description}")

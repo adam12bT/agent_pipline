@@ -47,8 +47,14 @@ def _env_float(name: str, default: float) -> float:
 
 
 class AnythingLLMClient:
-    def __init__(self, base_url: str = ANYTHINGLLM_BASE_URL):
-        self.base_url = base_url.rstrip("/")
+    def __init__(self, base_url: str | None = None):
+        # Resolve this at instance creation because local CLIs load .env after
+        # modules have already been imported.
+        self.base_url = (
+            base_url
+            or os.environ.get("ANYTHINGLLM_BASE_URL")
+            or ANYTHINGLLM_BASE_URL
+        ).rstrip("/")
         self.timeout_seconds = _env_float("ANYTHINGLLM_TIMEOUT_SECONDS", 30.0)
         self.max_retries = _env_int("ANYTHINGLLM_MAX_RETRIES", 3)
         self.retry_base_seconds = _env_float("ANYTHINGLLM_RETRY_BASE_SECONDS", 2.0)

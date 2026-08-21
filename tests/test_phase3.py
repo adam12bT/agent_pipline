@@ -309,7 +309,7 @@ class ResponseTemplateQualityTests(unittest.TestCase):
                 }
             )
 
-        self.assertEqual(result["status"], "failed")
+        self.assertFalse(result["quality_passed"])
 
     def test_quality_review_uses_one_compact_group_by_default(self):
         section_batches = [
@@ -363,7 +363,7 @@ class ResponseTemplateQualityTests(unittest.TestCase):
                 }
             )
 
-        self.assertEqual(result["status"], "failed")
+        self.assertFalse(result["quality_passed"])
         self.assertFalse(result["quality_passed"])
         self.assertFalse(result["quality_report"]["evaluation_available"])
         self.assertFalse(

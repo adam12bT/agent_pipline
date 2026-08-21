@@ -39,7 +39,12 @@ class ExtractionOutput(ContractModel):
 
 class ResearchInput(ContractModel):
     is_verified: bool
-    workspace_slug: str
+    scope_summary: str
+    budget: str = "none stated"
+    selection_method: str | None = None
+    deliverables: list[str] = Field(default_factory=list)
+    technical_constraints: list[str] = Field(default_factory=list)
+    mandatory_requirements: list[str] = Field(default_factory=list)
 
 
 class ResearchOutput(ContractModel):

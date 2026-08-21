@@ -1,48 +1,15 @@
-"""
-Research Agent Implementation
----------------
-Runs in PARALLEL with the Extraction agent — both fan out from the
-Verifier and join at Generation. Runs autonomous web research on the
-market/competitor context for this tender, using the `gpt-researcher`
-pip package directly (confirmed as a real, actively maintained library —
-`pip install gpt-researcher`, class GPTResearcher, see their PyPI page).
+"""Tender-scoped external research with an inexpensive relevance gate.
 
-This does NOT modify GPT Researcher's own code — it's used purely as a
-library, imported and called like any other dependency.
-
-Requires GPT Researcher's own environment variables to be set (an LLM
-provider key and a search engine key, e.g. TAVILY_API_KEY) — see
-agents_pipeline/.env.example.
-
---------------------------------------------------------------------
-FIX (see graph.py / state.py docstrings for the parallel-fanout model):
---------------------------------------------------------------------
-This agent used to build its research query from `state["requirements"]`,
-which is written by the Extraction agent. Because Extraction and Research
-run in the SAME LangGraph superstep, every node in that step only ever
-sees the state as of the START of the step — before either branch has
-written anything. That made `requirements` unconditionally empty here,
-every single run, silently degrading every query to a generic fallback
-("...a project involving: the scope of this tender...") with no link to
-the actual tender content.
-
-The fix: instead of depending on Extraction's *output*, Research now
-reads the same *input* Extraction reads — the tender doc embedded in
-AnythingLLM — directly, via its own small, fast query. This keeps the
-two branches genuinely independent (true parallelism, no ordering
-requirement) while giving GPT Researcher a real, tender-specific scope
-to work from instead of a generic placeholder.
+The agent receives verified scope, budget, and selection-method fields through
+its input contract. It owns web research only and has no AnythingLLM access.
 """
 
-import asyncio
 import logging
 import os
 import re
 import unicodedata
 
 from .prompts import (
-    RESEARCH_SCOPE_PROMPT as _SCOPE_PROMPT,
-    RESEARCH_BUDGET_PROMPT as _BUDGET_PROMPT,
     RESEARCH_FALLBACK_SCOPE as _FALLBACK_SCOPE,
     RESEARCH_FALLBACK_BUDGET as _FALLBACK_BUDGET,
     RESEARCH_QUERY_BASE as _QUERY_BASE,
@@ -50,7 +17,6 @@ from .prompts import (
     RESEARCH_QUERY_SELECTION_METHOD_CLAUSE as _QUERY_SELECTION_METHOD_CLAUSE,
     RESEARCH_QUERY_GUARDRAILS as _QUERY_GUARDRAILS,
 )
-from providers import get_provider
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +43,121 @@ _REJECTED_RESEARCH_SUMMARY = (
     "(No external research used - relevance validation rejected the report "
     "because it did not match the tender scope.)"
 )
+
+_DOMAIN_PHRASES = {
+    "digital_software": {
+        "api first",
+        "back office",
+        "cloud",
+        "containerized",
+        "data repository",
+        "digital platform",
+        "information system",
+        "mfa",
+        "microservice",
+        "portal",
+        "rbac",
+        "software",
+        "tls",
+        "user interface",
+        "web application",
+    },
+    "physical_pipeline": {
+        "flowline",
+        "gas pipeline",
+        "hdpe",
+        "hydraulic test",
+        "ndt",
+        "oil and gas",
+        "oil pipeline",
+        "pipe manufacturer",
+        "pipeline construction",
+        "pipeline inspection",
+        "pipeline welding",
+        "piping",
+        "water pipeline",
+    },
+    "civil_infrastructure": {
+        "bridge construction",
+        "civil engineering",
+        "concrete",
+        "construction site",
+        "geotechnical",
+        "road construction",
+        "structural engineering",
+    },
+}
+
+
+def _normalized_text(text: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", text or "")
+    ascii_text = "".join(char for char in decomposed if not unicodedata.combining(char))
+    return re.sub(r"\s+", " ", ascii_text.lower()).strip()
+
+
+def _domain_scores(text: str) -> dict[str, int]:
+    normalized = _normalized_text(text)
+    return {
+        domain: sum(1 for phrase in phrases if phrase in normalized)
+        for domain, phrases in _DOMAIN_PHRASES.items()
+    }
+
+
+def _primary_domain(text: str) -> str:
+    scores = _domain_scores(text)
+    domain, score = max(scores.items(), key=lambda item: item[1])
+    return domain if score >= 2 else "unknown"
+
+
+def _scope_context(state: dict) -> str:
+    parts = [str(state.get("scope_summary") or "").strip()]
+    for field in ("deliverables", "technical_constraints", "mandatory_requirements"):
+        values = state.get(field) or []
+        parts.extend(str(value).strip() for value in values if str(value).strip())
+    return ". ".join(part for part in parts if part)
+
+
+def _report_completeness(report: str) -> dict:
+    """Reject clearly cut-off output instead of feeding fragments to Generation."""
+    text = (report or "").strip()
+    tail = text[-160:].strip()
+    last_line = text.splitlines()[-1].strip() if text else ""
+    last_word = re.findall(r"[a-zA-Z]+", tail.lower())
+    dangling_words = {
+        "a", "an", "and", "avec", "de", "des", "du", "et", "for", "of", "or",
+        "the", "to", "with",
+    }
+    incomplete = (
+        len(text) < 100
+        or tail.endswith(("-", ",", ":", ";", "/", "(", "["))
+        or (last_word and last_word[-1] in dangling_words)
+        or text.count("[") != text.count("]")
+        or text.count("(") != text.count(")")
+        or (last_line.startswith("|") and not last_line.endswith("|"))
+    )
+    return {
+        "complete": not incomplete,
+        "report_chars": len(text),
+        "tail": tail[-80:],
+    }
+
+
+def _report_source_quality(report: str) -> dict:
+    try:
+        minimum_citations = max(
+            0, int(os.environ.get("RESEARCH_MIN_VERIFIABLE_CITATIONS", "1"))
+        )
+    except ValueError:
+        minimum_citations = 1
+    urls = {
+        url.rstrip(".,;]")
+        for url in re.findall(r"https?://[^\s)>]+", report or "")
+    }
+    return {
+        "has_enough_sources": len(urls) >= minimum_citations,
+        "citation_count": len(urls),
+        "minimum_citations": minimum_citations,
+    }
 
 
 def _normalized_keywords(text: str) -> set[str]:
@@ -118,16 +199,44 @@ def _evaluate_research_relevance(scope: str, report: str) -> dict:
     matched = sorted(scope_keywords & report_keywords)
     coverage = len(matched) / len(scope_keywords) if scope_keywords else 0.0
     scope_is_usable = len(scope_keywords) >= minimum_matches
-    relevant = (
+    lexical_relevance = (
         scope_is_usable
         and len(matched) >= minimum_matches
         and coverage >= minimum_coverage
     )
 
+    scope_domain = _primary_domain(scope)
+    scope_domain_scores = _domain_scores(scope)
+    report_domain_scores = _domain_scores(report)
+    conflicting_domains: list[str] = []
+    if scope_domain == "digital_software":
+        conflicting_domains = [
+            domain
+            for domain in ("physical_pipeline", "civil_infrastructure")
+            if report_domain_scores[domain] >= 2
+        ]
+
+    completeness = _report_completeness(report)
+    source_quality = _report_source_quality(report)
+    relevant = all(
+        (
+            lexical_relevance,
+            not conflicting_domains,
+            completeness["complete"],
+            source_quality["has_enough_sources"],
+        )
+    )
+
     reason = "accepted"
     if not scope_is_usable:
         reason = "insufficient_tender_scope"
-    elif not relevant:
+    elif conflicting_domains:
+        reason = "conflicting_domain"
+    elif not completeness["complete"]:
+        reason = "truncated_or_incomplete_report"
+    elif not source_quality["has_enough_sources"]:
+        reason = "missing_verifiable_sources"
+    elif not lexical_relevance:
         reason = "low_scope_overlap"
 
     return {
@@ -139,88 +248,22 @@ def _evaluate_research_relevance(scope: str, report: str) -> dict:
         "minimum_matched_keywords": minimum_matches,
         "scope_keyword_count": len(scope_keywords),
         "matched_keywords": matched[:25],
+        "scope_domain": scope_domain,
+        "scope_domain_scores": scope_domain_scores,
+        "report_domain_scores": report_domain_scores,
+        "conflicting_domains": conflicting_domains,
+        "report_complete": completeness["complete"],
+        "report_chars": completeness["report_chars"],
+        "citation_count": source_quality["citation_count"],
+        "minimum_citations": source_quality["minimum_citations"],
     }
 
 
-def _configure_research_groq_credentials(uses_groq: bool) -> bool:
-    """Give GPT Researcher its dedicated key without exposing its value.
-
-    GPT Researcher constructs its own ChatGroq clients and reads the standard
-    ``GROQ_API_KEY`` variable internally. Direct pipeline calls do not depend
-    on this mutation because GroqProvider prefers ``PIPELINE_GROQ_API_KEY``.
-    The legacy single-key setup remains supported when the dedicated research
-    key is absent.
-    """
-    research_key = os.environ.get("RESEARCH_GROQ_API_KEY")
-    if not uses_groq or not research_key:
-        return False
-    os.environ["GROQ_API_KEY"] = research_key
-    logger.info("GPT Researcher configured with RESEARCH_GROQ_API_KEY")
-    return True
-
-
-def _get_scope_from_tender(workspace_slug: str, rag=None) -> str:
-    """Independent, lightweight read of the embedded tender doc — does NOT
-    rely on the Extraction agent's output, so this stays safe to run in
-    parallel with it. Falls back to a generic scope string (old behavior)
-    if the workspace isn't ready yet or the call fails for any reason,
-    rather than blowing up the whole Research branch over it."""
-    try:
-        query = (
-            "project scope, deliverables, sector, domain, technical or "
-            "regulatory requirements"
-        )
-        if rag is None:
-            raise RuntimeError("RagQuery dependency was not provided")
-        context = rag.query(workspace_slug, query, top_n=6)
-        prompt = f"TENDER DOCUMENT EXCERPTS:\n\n{context}\n\n{_SCOPE_PROMPT}"
-        response_text = get_provider().complete(
-            prompt,
-            request_label="research.scope",
-            reasoning_effort="low",
-            include_reasoning=False,
-        )
-        scope = response_text.strip().strip('"')
-        return scope if scope else _FALLBACK_SCOPE
-    except Exception as e:
-        # Non-fatal — Research can still run, just with the generic
-        # fallback query instead of a tender-specific one.
-        logger.warning(
-            "Failed to read tender scope for workspace %r, falling back to generic "
-            "scope: %s", workspace_slug, e,
-        )
-        return _FALLBACK_SCOPE
-
-
-def _get_budget_from_tender(workspace_slug: str, rag=None) -> str:
-    """Independent, lightweight read of the embedded tender doc for the
-    stated budget/price ceiling — same pattern as _get_scope_from_tender.
-    Used to steer GPT Researcher toward firms actually sized to compete
-    for this contract, rather than category-leading enterprise vendors
-    a much bigger budget would attract."""
-    try:
-        query = "total budget, price ceiling, contract value"
-        if rag is None:
-            raise RuntimeError("RagQuery dependency was not provided")
-        context = rag.query(workspace_slug, query, top_n=4)
-        prompt = f"TENDER DOCUMENT EXCERPTS:\n\n{context}\n\n{_BUDGET_PROMPT}"
-        response_text = get_provider().complete(
-            prompt,
-            request_label="research.budget",
-            reasoning_effort="low",
-            include_reasoning=False,
-        )
-        budget = response_text.strip().strip('"')
-        return budget if budget else _FALLBACK_BUDGET
-    except Exception as e:
-        logger.warning(
-            "Failed to read tender budget for workspace %r, falling back to %r: %s",
-            workspace_slug, _FALLBACK_BUDGET, e,
-        )
-        return _FALLBACK_BUDGET
-
-
-def _build_query(scope: str, budget: str = _FALLBACK_BUDGET, selection_method: str | None = None) -> str:
+def _build_query(
+    scope: str,
+    budget: str = _FALLBACK_BUDGET,
+    selection_method: str | None = None,
+) -> str:
     """Turn a short scope description into a focused research query
     instead of just researching the raw, noisy tender text."""
     query = _QUERY_BASE.format(scope=scope)
@@ -228,92 +271,37 @@ def _build_query(scope: str, budget: str = _FALLBACK_BUDGET, selection_method: s
         query += _QUERY_BUDGET_CLAUSE.format(budget=budget)
     if selection_method:
         query += _QUERY_SELECTION_METHOD_CLAUSE.format(selection_method=selection_method)
+    if _primary_domain(scope) == "digital_software":
+        query += (
+            " This is a digital/software and information-system procurement. "
+            "Interpret workflow, processing, or testing pipelines as software concepts. "
+            "Exclude oil/gas pipelines, water pipes, HDPE, NDT, bridge construction, "
+            "and civil-engineering suppliers unless the tender explicitly concerns them."
+        )
+    query += (
+        " Treat a company as a likely competitor only when a cited source shows that "
+        "it delivers relevant consulting, implementation, or integration services. "
+        "Do not present an AI model, API product, software library, or cloud feature as "
+        "a bidding firm. Every named competitor must have an inline source URL that "
+        "supports its relevant capability; otherwise omit it."
+    )
     query += _QUERY_GUARDRAILS
     return query
 
 
-async def _run_research(query: str) -> str:
-    # Import lazily so an optional GPT Researcher packaging/import problem
-    # cannot prevent the FastAPI application from starting. Any failure here
-    # is caught by research_agent(), reported in the run output, and the rest
-    # of the proposal pipeline can continue without external research.
-    groq_models = (
-        os.environ.get("FAST_LLM", ""),
-        os.environ.get("SMART_LLM", ""),
-        os.environ.get("STRATEGIC_LLM", ""),
-    )
-    uses_groq = any(model.strip().lower().startswith("groq:") for model in groq_models)
-    _configure_research_groq_credentials(uses_groq)
-
-    from gpt_researcher import GPTResearcher
-
-    researcher = GPTResearcher(query=query, report_type="research_report")
-
-    # Setting these directly on `.cfg` after construction rather than via
-    # `config_path=` — passing a config JSON path is a known-unreliable
-    # path in gpt-researcher (values are sometimes silently ignored; see
-    # assafelovic/gpt-researcher issues #489 and #1041). Setting attributes
-    # on the already-constructed Config object is the documented workaround.
-    #
-    # Lower MAX_SEARCH_RESULTS_PER_QUERY and MAX_SUBTOPICS so the report
-    # visits fewer low-value pages (e.g. "Top 40 healthcare consultancies"
-    # listicles) instead of citing every firm mentioned on a page it barely
-    # used — this is what caused the ~50-entry reference list bloat.
-    researcher.cfg.max_search_results_per_query = 4
-    researcher.cfg.max_subtopics = 3
-    researcher.cfg.total_words = 900
-    researcher.cfg.fast_token_limit = 1200
-    researcher.cfg.smart_token_limit = 1800
-    researcher.cfg.strategic_token_limit = 1200
-    researcher.cfg.summary_token_limit = 500
-
-    # GPT Researcher creates its own ChatGroq clients, so those calls do not
-    # pass through providers/groq_provider.py. Give every internal LLM client
-    # one shared LangChain rate limiter and add boundary cooldowns so research
-    # cannot collide with the direct calls immediately before/after this step.
-    groq_interval = max(
-        0.0, float(os.environ.get("GROQ_MIN_INTERVAL_SECONDS", "30"))
-    )
-    if uses_groq and groq_interval > 0:
-        from langchain_core.rate_limiters import InMemoryRateLimiter
-
-        researcher.cfg.llm_kwargs["rate_limiter"] = InMemoryRateLimiter(
-            requests_per_second=1.0 / groq_interval,
-            check_every_n_seconds=min(1.0, groq_interval),
-            max_bucket_size=1,
-        )
-        await asyncio.sleep(groq_interval)
-    logger.debug(
-        "GPT Researcher config tuned: max_search_results_per_query=4, "
-        "max_subtopics=3, total_words=900 (source-list bloat mitigation)"
-    )
-
-    await researcher.conduct_research()
-    report = await researcher.write_report()
-    if uses_groq and groq_interval > 0:
-        await asyncio.sleep(groq_interval)
-    return report
-
-
-def research_agent(state: dict, *, rag=None, web=None) -> dict:
+def research_agent(state: dict, *, web=None) -> dict:
     if not state.get("is_verified"):
-        # Partial-return convention — see extraction_agent.py's matching
-        # guard and state.py's docstring for why this must be `{}` and
-        # not a full state passthrough now that this runs in parallel.
         return {}
 
-    # NOTE: deliberately NOT reading state.get("requirements") here — see
-    # the module docstring. `workspace_slug` is safe to read because it's
-    # written by the Verifier, which always completes (and joins) BEFORE
-    # the parallel Extraction/Research fan-out even starts.
-    workspace_slug = state["workspace_slug"]
-    scope = _get_scope_from_tender(workspace_slug, rag=rag)
-    budget = _get_budget_from_tender(workspace_slug, rag=rag)
+    scope = str(state.get("scope_summary") or "").strip()
+    scope_context = _scope_context(state)
+    budget = str(state.get("budget") or _FALLBACK_BUDGET).strip()
+    selection_method = state.get("selection_method")
 
     # A generic fallback cannot safely anchor external research. Skipping here
     # is preferable to feeding an unrelated market report into Generation.
-    if scope == _FALLBACK_SCOPE or len(_normalized_keywords(scope)) < 3:
-        relevance_report = _evaluate_research_relevance(scope, "")
+    if scope == _FALLBACK_SCOPE or len(_normalized_keywords(scope_context)) < 3:
+        relevance_report = _evaluate_research_relevance(scope_context, "")
         error_msg = (
             "Research skipped: tender scope was not specific enough for "
             "relevance validation."
@@ -326,11 +314,9 @@ def research_agent(state: dict, *, rag=None, web=None) -> dict:
             "errors": [error_msg],
         }
 
-    query = _build_query(scope, budget)
+    query = _build_query(scope_context, budget, selection_method)
 
     try:
-        # research_agent is a plain sync function (LangGraph node), but
-        # GPTResearcher's API is async — run it in its own event loop.
         if web is None:
             raise RuntimeError("WebResearch dependency was not provided")
         research_summary = web.research(query)
@@ -351,10 +337,11 @@ def research_agent(state: dict, *, rag=None, web=None) -> dict:
             "errors": [error_msg],
         }
 
-    relevance_report = _evaluate_research_relevance(scope, research_summary)
+    relevance_report = _evaluate_research_relevance(scope_context, research_summary)
     if not relevance_report["relevant"]:
         error_msg = (
             "Research relevance gate rejected the external report: "
+            f"reason={relevance_report['reason']}, "
             f"coverage={relevance_report['coverage']:.3f} "
             f"(minimum={relevance_report['minimum_coverage']:.3f}), "
             f"matched={relevance_report['matched_keyword_count']} "
@@ -369,8 +356,7 @@ def research_agent(state: dict, *, rag=None, web=None) -> dict:
         }
 
     logger.info(
-        "Research completed for workspace %r (%d chars, relevance coverage %.3f)",
-        workspace_slug,
+        "Research completed (%d chars, relevance coverage %.3f)",
         len(research_summary),
         relevance_report["coverage"],
     )

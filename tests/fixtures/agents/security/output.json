@@ -1,0 +1,16 @@
+{
+  "security_passed": true,
+  "security_report": {
+    "findings": {},
+    "notes": [
+      "Security scanning is disabled. No automated security checks were performed."
+    ],
+    "scanner": {
+      "mode": "disabled",
+      "llm_guard_enabled": false,
+      "llm_guard_available": false,
+      "fallback_enabled": false
+    },
+    "scan_performed": false
+  }
+}

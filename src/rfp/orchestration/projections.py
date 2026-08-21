@@ -26,9 +26,15 @@ def extraction_input(state: dict) -> ExtractionInput:
 
 def research_input(state: dict) -> ResearchInput:
     verified = state.get("verifier") or {}
+    requirements = (state.get("extraction") or {}).get("requirements") or {}
     return ResearchInput(
         is_verified=verified.get("is_verified", False),
-        workspace_slug=verified.get("workspace_slug", ""),
+        scope_summary=str(requirements.get("scope_summary") or ""),
+        budget=str(requirements.get("budget") or "none stated"),
+        selection_method=requirements.get("selection_method"),
+        deliverables=list(requirements.get("deliverables") or []),
+        technical_constraints=list(requirements.get("technical_constraints") or []),
+        mandatory_requirements=list(requirements.get("mandatory_requirements") or []),
     )
 
 

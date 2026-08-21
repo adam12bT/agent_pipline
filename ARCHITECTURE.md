@@ -10,6 +10,9 @@ FastAPI / CLI
       v
 rfp.orchestration.graph
       |
+      +--> Verifier --> Extraction --> Research --> Generation
+      |                                      --> Security --> Quality
+      |
       +--> projections.py --> Pydantic Input --> agent --> Pydantic Output
       |
       +--> routing.py (branching, retries, terminal status)
@@ -27,6 +30,8 @@ rfp.orchestration.graph
    implemented by adapters.
 5. `rfp.orchestration.graph` is the single call site for every agent. Replacing
    one local `run()` function with an HTTP client changes only this composition.
+6. Research receives extracted scope through its contract and owns only web
+   research; it has no AnythingLLM or extractor dependency.
 
 ## Package layout
 
@@ -38,8 +43,21 @@ and a test package. Run one independently with:
 python -m rfp.agents.quality --in quality-input.json --out quality-output.json
 ```
 
+Every saved real-run pair can also be verified without external side effects:
+
+```powershell
+python -m rfp.agents.quality `
+  --in tests/fixtures/agents/quality/input.json `
+  --expected tests/fixtures/agents/quality/output.json `
+  --contract-only
+```
+
 Dependencies are declared as `pyproject.toml` extras, such as
 `.[research]`, `.[quality]`, `.[api]`, or `.[full]`.
+
+Saved contract-compatible input/output examples live under
+`tests/fixtures/agents/<agent>/`. A golden namespaced-to-public state snapshot
+under `tests/fixtures/pipeline/` protects the existing API response shape.
 
 ## API projection
 

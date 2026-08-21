@@ -40,14 +40,8 @@ from logging_config import configure_logging  # noqa: E402
 configure_logging()
 
 from rfp.api.run_store import create_run, get_run, list_runs, PIPELINE_STAGES  # noqa: E402
-from anythingllm_client import AnythingLLMClient  # noqa: E402
-from company_knowledge import (  # noqa: E402
-    ALL_COMPANY_WORKSPACES,
-    PROPOSALS_WORKSPACE,
-    CVS_WORKSPACE,
-    REFERENCES_WORKSPACE,
-    ensure_company_workspaces,
-)
+from rfp.adapters import AnythingLLMAdapter  # noqa: E402
+from rfp.adapters.anythingllm import KNOWLEDGE_CATEGORIES  # noqa: E402
 from rfp.agents.quality.implementation import (  # noqa: E402
     llm_guard_available as quality_guard_available,
 )
@@ -72,13 +66,6 @@ UPLOAD_DIR = os.path.join(tempfile.gettempdir(), "rfp-pipeline-uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 SUPPORTED_TENDER_EXTENSIONS = {".pdf", ".docx"}
-
-KNOWLEDGE_CATEGORIES = {
-    "past_proposals": PROPOSALS_WORKSPACE,
-    "cvs": CVS_WORKSPACE,
-    "project_references": REFERENCES_WORKSPACE,
-}
-
 
 def _save_upload(upload: UploadFile, subdir: str) -> str:
     target_dir = os.path.join(UPLOAD_DIR, subdir)
@@ -181,37 +168,11 @@ def download_draft(run_id: str):
 
 @app.get("/api/knowledge")
 def knowledge_status():
-    client = AnythingLLMClient()
-    ensure_company_workspaces(client)  # idempotent — safe to call on every poll
-
-    result = {}
-    for category, slug in KNOWLEDGE_CATEGORIES.items():
-        try:
-            workspace = client.get_workspace(slug)
-        except Exception as e:
-            logger.warning("Failed to fetch knowledge workspace %r: %s", slug, e)
-            result[category] = {"slug": slug, "error": str(e), "documents": []}
-            continue
-
-        documents = []
-        if workspace:
-            # Real AnythingLLM workspaces include a "documents" array;
-            # tolerate its absence gracefully (e.g. against a stripped-down
-            # server fork that doesn't return it).
-            for doc in workspace.get("documents", []) or []:
-                documents.append(
-                    {
-                        "title": doc.get("title") or doc.get("filename") or "unknown",
-                        "id": doc.get("id"),
-                    }
-                )
-        result[category] = {
-            "slug": slug,
-            "exists": workspace is not None,
-            "document_count": len(documents),
-            "documents": documents,
-        }
-    return result
+    try:
+        return AnythingLLMAdapter().knowledge_status()
+    except Exception as exc:
+        logger.error("Failed to read company knowledge status: %s", exc)
+        raise HTTPException(502, f"AnythingLLM status request failed: {exc}")
 
 
 @app.post("/api/knowledge/{category}/upload")
@@ -226,12 +187,11 @@ async def upload_knowledge_file(category: str, file: UploadFile = File(...)):
         raise HTTPException(400, f"Unsupported file type '{ext}'. Only .pdf and .docx allowed.")
 
     slug = KNOWLEDGE_CATEGORIES[category]
-    client = AnythingLLMClient()
-    client.get_or_create_workspace(slug)
+    adapter = AnythingLLMAdapter()
 
     dest_path, _ = _save_upload(file, f"knowledge/{category}")
     try:
-        result = client.upload_document(dest_path, slug)
+        result = adapter.upload_knowledge(category, dest_path)
     except Exception as e:
         logger.error(
             "Knowledge upload failed for category=%r file=%r: %s",

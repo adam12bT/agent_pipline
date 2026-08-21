@@ -511,7 +511,6 @@ def generation_agent(state: dict, *, rag=None, knowledge=None) -> dict:
                 "generation_evidence": generation_evidence,
                 "generation_attempts": attempt_number,
                 "errors": [error_msg],
-                "status": "failed",
             }
 
     draft = (

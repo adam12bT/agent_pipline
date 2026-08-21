@@ -1,3 +1,0 @@
-# Compatibility entry point for platforms that require requirements.txt.
-# Dependency ownership and per-agent extras live in pyproject.toml.
-.[full]

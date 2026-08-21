@@ -26,8 +26,12 @@ class PerAgentContractTests(unittest.TestCase):
         self.assertTrue(value.is_verified)
 
     def test_research_contract(self):
-        value = ResearchInput(is_verified=True, workspace_slug="tender")
-        self.assertEqual(value.workspace_slug, "tender")
+        value = ResearchInput(
+            is_verified=True,
+            scope_summary="Secure citizen-services platform",
+            budget="480000 TND",
+        )
+        self.assertIn("platform", value.scope_summary)
 
     def test_generation_contract(self):
         value = GenerationInput(

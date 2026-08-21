@@ -3,19 +3,14 @@ Verifier Agent Implementation
 --------------
 First node in the pipeline. Checks that both the tender and response template
 are usable before any expensive LLM calls happen: do they exist, use a
-supported format, and contain data? If anything fails, it sets
-state["is_verified"] = False and status = "blocked", which the graph
-uses to short-circuit straight to the end instead of wasting API calls
-on a broken input.
+supported format, and contain data? It returns only verification facts and
+errors; the orchestrator converts a failed verdict into a blocked run.
 
 It creates separate AnythingLLM workspaces and indexes both documents through
 the extractor. The isolation prevents template boilerplate from contaminating
 tender requirement retrieval.
 
-Returns a PARTIAL state dict (see state.py) — not the full `{**state, ...}`
-— since this keeps the pattern consistent across every agent, including
-the two (Extraction, Research) that now run in parallel and can't safely
-spread the full state back.
+Returns only the fields declared by its output contract.
 """
 
 import logging

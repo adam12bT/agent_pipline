@@ -13,7 +13,7 @@ WORKDIR /app
 COPY . .
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.6.0 \
-    && pip install --no-cache-dir -r requirements.txt
+    && pip install --no-cache-dir ".[full]"
 
 # Hugging Face Docker Spaces route traffic to port 7860.
 ENV PORT=7860

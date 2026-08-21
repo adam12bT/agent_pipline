@@ -1,0 +1,74 @@
+{
+  "quality_passed": false,
+  "quality_report": {
+    "word_count": 2509,
+    "missing_sections": [],
+    "out_of_order_sections": [],
+    "required_sections": [
+      "Règles obligatoires de présentation / Mandatory Presentation Rules",
+      "1. Résumé exécutif / Executive Summary",
+      "2. Compréhension du besoin / Understanding of the Requirements",
+      "3. Conformité aux exigences / Requirements Compliance",
+      "4. Approche et méthodologie / Proposed Approach and Methodology",
+      "5. Plan de travail et calendrier / Work Plan and Timeline",
+      "6. Organisation et gouvernance / Organisation and Governance",
+      "7. Équipe proposée / Proposed Team",
+      "8. Gestion des risques et assurance qualité / Risk Management and Quality Assurance",
+      "9. Références pertinentes / Relevant Project References",
+      "10. Proposition financière / Financial Proposal",
+      "11. Annexes / Appendices"
+    ],
+    "quality_findings": {},
+    "grounding_review": {
+      "groundedness_score": 0.6,
+      "coherence_score": 0.7,
+      "unsupported_claims": [
+        {
+          "claim": "We will employ infrastructure as code and containerized services to ensure operational efficiency and maintainability.",
+          "reason": "This is a general statement of intent and not explicitly stated as a technical approach within the provided evidence. The evidence only mandates containerization, not the *employment* of infrastructure as code."
+        },
+        {
+          "claim": "Our architecture will be inherently API-first, facilitating seamless integration with existing systems and future expansion.",
+          "reason": "This is a general assertion about architectural design and is not directly supported by the tender requirements which only specify an API-first *architecture*."
+        },
+        {
+          "claim": "Furthermore, we recognize the critical importance of security, incorporating TLS 1.3, AES-256 encryption, MFA, RBAC, and immutable logging to safeguard sensitive information.",
+          "reason": "This is a list of security features, but the evidence doesn’t state that the bidder *will* implement them. It only outlines the *required* security standards."
+        },
+        {
+          "claim": "We are committed to full compliance with the loi tunisienne sur les données personnelles and the principles of ISO 27001, ensuring data privacy and security throughout the platform’s lifecycle.",
+          "reason": "This is a commitment to compliance standards, but the evidence does not confirm that the bidder possesses the expertise or intends to achieve this compliance. It only states the *need* for compliance."
+        },
+        {
+          "claim": "Our team’s combined experience – encompassing architecture, security, and migration – guarantees a timely and compliant delivery, meeting the 32-week project duration and budget of 480,000 TND TTC.",
+          "reason": "This is a claim of guaranteed delivery and is not supported by the evidence. Project timelines and budgets are subject to various factors and cannot be guaranteed."
+        }
+      ],
+      "contradictions": [
+        {
+          "claim": "TLS 1.3 will be utilized for all data transmission",
+          "evidence": "The evidence only mandates TLS 1.3 for data transmission, not *utilization*."
+        },
+        {
+          "claim": "Services will be containerized using industry-standard technologies",
+          "evidence": "The evidence only mandates services containerized, not the use of *industry-standard* technologies"
+        }
+      ],
+      "coherence_issues": [
+        "The proposal repeatedly states intentions (e.g., ‘We will employ…’) without detailing the specific methods or technologies to be used. This creates a lack of concrete detail."
+      ],
+      "notes": [
+        "The proposal relies heavily on aspirational language and lacks specific technical details. Further elaboration is needed to demonstrate a clear understanding of the requirements and a robust solution. The ‘To Be Confirmed’ placeholders highlight significant gaps in the proposal."
+      ],
+      "evaluation_batches": 1
+    },
+    "evaluation_available": true,
+    "groundedness_threshold": 0.75,
+    "coherence_threshold": 0.75,
+    "notes": [
+      "Grounding/coherence review failed: groundedness=0.60 (minimum 0.75), coherence=0.70 (minimum 0.75).",
+      "Unsupported claims: [{'claim': 'We will employ infrastructure as code and containerized services to ensure operational efficiency and maintainability.', 'reason': 'This is a general statement of intent and not explicitly stated as a technical approach within the provided evidence. The evidence only mandates containerization, not the *employment* of infrastructure as code.'}, {'claim': 'Our architecture will be inherently API-first, facilitating seamless integration with existing systems and future expansion.', 'reason': 'This is a general assertion about architectural design and is not directly supported by the tender requirements which only specify an API-first *architecture*.'}, {'claim': 'Furthermore, we recognize the critical importance of security, incorporating TLS 1.3, AES-256 encryption, MFA, RBAC, and immutable logging to safeguard sensitive information.', 'reason': 'This is a list of security features, but the evidence doesn’t state that the bidder *will* implement them. It only outlines the *required* security standards.'}, {'claim': 'We are committed to full compliance with the loi tunisienne sur les données personnelles and the principles of ISO 27001, ensuring data privacy and security throughout the platform’s lifecycle.', 'reason': 'This is a commitment to compliance standards, but the evidence does not confirm that the bidder possesses the expertise or intends to achieve this compliance. It only states the *need* for compliance.'}, {'claim': 'Our team’s combined experience – encompassing architecture, security, and migration – guarantees a timely and compliant delivery, meeting the 32-week project duration and budget of 480,000 TND TTC.', 'reason': 'This is a claim of guaranteed delivery and is not supported by the evidence. Project timelines and budgets are subject to various factors and cannot be guaranteed.'}]",
+      "Contradictions: [{'claim': 'TLS 1.3 will be utilized for all data transmission', 'evidence': 'The evidence only mandates TLS 1.3 for data transmission, not *utilization*.'}, {'claim': 'Services will be containerized using industry-standard technologies', 'evidence': 'The evidence only mandates services containerized, not the use of *industry-standard* technologies'}]"
+    ]
+  }
+}

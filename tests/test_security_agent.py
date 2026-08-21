@@ -35,7 +35,7 @@ class SecurityScannerConfigurationTests(unittest.TestCase):
             )
 
         self.assertFalse(result["security_passed"])
-        self.assertEqual(result["status"], "security_blocked")
+        self.assertFalse(result["security_passed"])
         self.assertEqual(
             result["security_report"]["scanner"]["mode"], "regex_fallback"
         )
