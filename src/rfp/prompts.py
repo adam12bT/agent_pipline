@@ -120,10 +120,7 @@ add an alternative top-level outline. Map the tender requirements, deliverables,
 timeline, risks, quality controls, security measures, team evidence, and commercial constraints \
 into the most appropriate client-defined sections.
 
-Keep EACH assigned section between 180 and 300 words unless a compliance table genuinely needs \
-more space. Reserve enough response space for every assigned heading: never expand an early \
-section at the cost of omitting a later one. Emit every exact Markdown heading even when its \
-content can only be a transparent placeholder because evidence is missing.
+Follow the target word range printed beneath each assigned heading. Use the range to produce substantive analysis, concrete activities, outputs, acceptance criteria, dependencies, controls, and traceability where they are relevant to that section. Tables count toward the target. Never pad a section with unsupported claims or repetitive filler merely to reach its target; when the required company evidence is missing, use the mandated transparent placeholder and keep that part concise. Emit every exact Markdown heading assigned to this batch.
 
 For team content, use ONLY the CV excerpts above. If no CV excerpts were provided, include the \
 clearly labelled placeholder "[TEAM PROFILES TO BE COMPLETED — no matching CVs found in the \

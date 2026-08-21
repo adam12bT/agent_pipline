@@ -407,6 +407,30 @@ class ResponseTemplateQualityTests(unittest.TestCase):
         self.assertIn("## 2. Compréhension du besoin", outline)
         self.assertNotIn("Executive Summary", outline)
 
+    def test_generation_outline_derives_word_target_from_template_limit(self):
+        short_outline = _proposal_structure(
+            {
+                "section_order": ["Introduction", "Solution"],
+                "formatting_requirements": ["Maximum 10 pages."],
+            }
+        )
+        long_outline = _proposal_structure(
+            {
+                "section_order": [
+                    "Introduction",
+                    "Understanding",
+                    "Solution",
+                    "Planning",
+                    "Quality",
+                ],
+                "formatting_requirements": ["Maximum 10 pages."],
+            }
+        )
+
+        self.assertIn("derived from template page limit (10 pages)", short_outline)
+        self.assertIn("Target length: 650-750 words.", short_outline)
+        self.assertIn("Target length: 392-514 words.", long_outline)
+
     def test_client_template_sections_override_defaults(self):
         state = {
             "requirements": {
