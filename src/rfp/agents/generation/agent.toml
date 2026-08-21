@@ -1,0 +1,12 @@
+name = "generation"
+extra = "generation"
+contract = "rfp.agents.generation.contract"
+ports = ["RagQuery", "KnowledgeSearch"]
+env = [
+  "LLM_PROVIDER",
+  "PIPELINE_GROQ_API_KEY",
+  "GENERATION_BATCH_SIZE",
+  "GENERATION_BATCH_MAX_TOKENS",
+  "GENERATION_CONTEXT_MAX_CHARS",
+  "GENERATION_PROMPT_MAX_CHARS",
+]

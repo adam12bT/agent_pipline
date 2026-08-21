@@ -1,0 +1,5 @@
+name = "extraction"
+extra = "extraction"
+contract = "rfp.agents.extraction.contract"
+ports = ["RagQuery"]
+env = ["LLM_PROVIDER", "PIPELINE_GROQ_API_KEY"]

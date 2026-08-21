@@ -1,0 +1,3 @@
+from rfp.prompts import GENERATION_PROMPT_TEMPLATE
+
+__all__ = ["GENERATION_PROMPT_TEMPLATE"]

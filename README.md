@@ -13,7 +13,36 @@ pinned: false
 Multi-agent RFP/tender proposal pipeline (LangGraph + AnythingLLM RAG).
 Deployed automatically from the `main` branch via GitHub Actions.
 
-Backend: FastAPI (`backend/api.py`). See `/api/health` for a liveness check.
+Canonical package: `src/rfp`. FastAPI entry point: `rfp.api.app:app`.
+See `/api/health` for a liveness check.
+
+Each run detail response also exposes a top-level `telemetry` object with
+exact per-agent durations, repeated-attempt timings, LLM call counts, and
+provider-reported prompt/completion token usage. Groq and Ollama direct calls
+report usage; external services that do not return token metadata are marked
+implicitly by their absence rather than estimated.
+
+Install the complete synchronous application with `pip install -e ".[full]"`.
+Install only one agent's dependencies with an extra such as
+`pip install -e ".[quality]"` or `pip install -e ".[research]"`.
+
+The Docker image installs `.[full]` directly from `pyproject.toml`;
+`requirements.txt` is no longer used. A complete real pre-migration run and
+its six projected agent input/output pairs are stored under `tests/fixtures/`.
+Verify exact offline CLI/API compatibility with:
+
+```powershell
+python -m rfp.compatibility_cli --replay-only
+```
+
+For a live comparison, run the following only after confirming that both
+files may be uploaded to the configured hosted AnythingLLM and extractor.
+It creates new persistent AnythingLLM workspaces:
+
+```powershell
+python -m rfp.compatibility_cli tender.pdf response-template.docx `
+  --save-current current-live-result.json
+```
 
 ## Starting a proposal run
 
@@ -33,7 +62,10 @@ template, upload the company's approved default response template.
 
 The Quality stage preserves the exact evidence supplied to Generation and
 uses it to score groundedness and coherence. A failed review is included as
-revision feedback on the next generation attempt. The Groq provider honors
+revision feedback on the next generation attempt. After the first complete
+draft, retries regenerate only the template sections associated with missing
+content, unsupported claims, contradictions, or localized quality failures;
+accepted sections are preserved. The Groq provider honors
 `Retry-After` and otherwise uses exponential backoff with jitter. Production
 Docker builds also fail if LLM Guard cannot be imported; `/api/health` reports
 the security and quality scanner capabilities.

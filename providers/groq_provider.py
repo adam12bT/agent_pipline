@@ -34,6 +34,7 @@ from typing import Optional
 import requests
 
 from providers.base import LLMProvider, LLMProviderError
+from providers.telemetry import record_llm_call
 
 logger = logging.getLogger(__name__)
 
@@ -165,6 +166,7 @@ class GroqProvider(LLMProvider):
         max_tokens: int = 4096,
         **kwargs,
     ) -> str:
+        completion_started = time.perf_counter()
         configured_model = kwargs.get("model") or self._model
         request_model = _MODEL_ALIASES.get(configured_model, configured_model)
         response_format = kwargs.get("response_format")
@@ -254,6 +256,16 @@ class GroqProvider(LLMProvider):
                             ),
                             response.headers.get("x-ratelimit-reset-tokens", "unknown"),
                         )
+                        record_llm_call(
+                            provider=self.name,
+                            model=request_model,
+                            duration_seconds=time.perf_counter() - completion_started,
+                            request_count=attempt + 1,
+                            prompt_tokens=usage.get("prompt_tokens"),
+                            completion_tokens=usage.get("completion_tokens"),
+                            total_tokens=usage.get("total_tokens"),
+                            success=True,
+                        )
                         return content
 
                     if response.status_code == 429:
@@ -338,5 +350,12 @@ class GroqProvider(LLMProvider):
             min(total_attempts, attempt + 1),
             request_model,
             detail,
+        )
+        record_llm_call(
+            provider=self.name,
+            model=request_model,
+            duration_seconds=time.perf_counter() - completion_started,
+            request_count=min(total_attempts, attempt + 1),
+            success=False,
         )
         raise LLMProviderError(f"Groq completion failed: {detail}") from last_error

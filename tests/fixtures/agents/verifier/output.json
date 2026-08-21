@@ -1,0 +1,120 @@
+{
+  "is_verified": true,
+  "verification_errors": [],
+  "workspace_slug": "rfp-e75b4644",
+  "response_template_workspace_slug": "rfp-e75b4644-template",
+  "document_processing": {
+    "success": true,
+    "document": {
+      "filename": "f4e22f83_complete_pipeline_test_tender.pdf",
+      "metadata": {
+        "filename": "f4e22f83_complete_pipeline_test_tender.pdf",
+        "file_type": "pdf",
+        "file_size_bytes": 253179,
+        "content_sha256": "45b403502aab7cdbc3283c8bb6aa3e3a2c8d9a1ee4a9e84a8c731bb0b49e2e49",
+        "page_count": 9,
+        "paragraph_count": 51,
+        "table_count": 15,
+        "section_count": 17,
+        "ocr_pages": 1,
+        "native_pages": 8
+      },
+      "pages": [
+        {
+          "page_number": 1,
+          "native_char_count": 922,
+          "used_ocr": false,
+          "ocr_confidence": null
+        },
+        {
+          "page_number": 2,
+          "native_char_count": 988,
+          "used_ocr": false,
+          "ocr_confidence": null
+        },
+        {
+          "page_number": 3,
+          "native_char_count": 983,
+          "used_ocr": false,
+          "ocr_confidence": null
+        },
+        {
+          "page_number": 4,
+          "native_char_count": 1024,
+          "used_ocr": false,
+          "ocr_confidence": null
+        },
+        {
+          "page_number": 5,
+          "native_char_count": 899,
+          "used_ocr": false,
+          "ocr_confidence": null
+        },
+        {
+          "page_number": 6,
+          "native_char_count": 817,
+          "used_ocr": false,
+          "ocr_confidence": null
+        },
+        {
+          "page_number": 7,
+          "native_char_count": 991,
+          "used_ocr": false,
+          "ocr_confidence": null
+        },
+        {
+          "page_number": 8,
+          "native_char_count": 915,
+          "used_ocr": false,
+          "ocr_confidence": null
+        },
+        {
+          "page_number": 9,
+          "native_char_count": 0,
+          "used_ocr": true,
+          "ocr_confidence": 0.9477777777777777
+        }
+      ],
+      "warnings": []
+    },
+    "index_result": {
+      "success": true,
+      "workspace_slug": "rfp-e75b4644",
+      "blocks_sent": 66,
+      "skipped_existing": 0,
+      "rolled_back": 0,
+      "error": null
+    },
+    "error": null
+  },
+  "response_template_processing": {
+    "success": true,
+    "document": {
+      "filename": "26576283_phase3_response_template.docx",
+      "metadata": {
+        "filename": "26576283_phase3_response_template.docx",
+        "file_type": "docx",
+        "file_size_bytes": 42827,
+        "content_sha256": "fdc5307e032ec3816d3121ba8f1b167964246237799837150fca3c4e235ebee8",
+        "page_count": null,
+        "paragraph_count": 40,
+        "table_count": 8,
+        "section_count": 18,
+        "ocr_pages": 0,
+        "native_pages": 0
+      },
+      "pages": [],
+      "warnings": []
+    },
+    "index_result": {
+      "success": true,
+      "workspace_slug": "rfp-e75b4644-template",
+      "blocks_sent": 48,
+      "skipped_existing": 0,
+      "rolled_back": 0,
+      "error": null
+    },
+    "error": null
+  },
+  "errors": []
+}

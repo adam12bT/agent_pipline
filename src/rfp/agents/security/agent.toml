@@ -1,0 +1,5 @@
+name = "security"
+extra = "security"
+contract = "rfp.agents.security.contract"
+ports = ["OutputScanner"]
+env = ["LLM_GUARD_ENABLED", "SECURITY_FALLBACK_ENABLED", "LLM_GUARD_FAIL_CLOSED"]

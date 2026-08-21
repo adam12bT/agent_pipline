@@ -12,11 +12,13 @@ Env vars:
 
 import logging
 import os
+import time
 from typing import Optional
 
 import requests
 
 from providers.base import LLMProvider, LLMProviderError
+from providers.telemetry import record_llm_call
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +46,7 @@ class OllamaProvider(LLMProvider):
         max_tokens: int = 4096,
         **kwargs,
     ) -> str:
+        completion_started = time.perf_counter()
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -70,13 +73,38 @@ class OllamaProvider(LLMProvider):
             )
             resp.raise_for_status()
             data = resp.json()
+            prompt_tokens = data.get("prompt_eval_count")
+            completion_tokens = data.get("eval_count")
+            record_llm_call(
+                provider=self.name,
+                model=str(data.get("model") or self._model),
+                duration_seconds=time.perf_counter() - completion_started,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=(
+                    int(prompt_tokens or 0) + int(completion_tokens or 0)
+                ),
+                success=True,
+            )
             return data.get("message", {}).get("content", "")
         except requests.exceptions.ConnectionError as e:
+            record_llm_call(
+                provider=self.name,
+                model=self._model,
+                duration_seconds=time.perf_counter() - completion_started,
+                success=False,
+            )
             logger.warning("Could not reach Ollama at %s: %s", self._base_url, e)
             raise LLMProviderError(
                 f"Could not reach Ollama at {self._base_url} — is the "
                 f"server running (`ollama serve`)? Original error: {e}"
             ) from e
         except Exception as e:
+            record_llm_call(
+                provider=self.name,
+                model=self._model,
+                duration_seconds=time.perf_counter() - completion_started,
+                success=False,
+            )
             logger.warning("Ollama completion failed (model=%r): %s", self._model, e)
             raise LLMProviderError(f"Ollama completion failed: {e}") from e

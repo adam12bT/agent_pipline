@@ -1,0 +1,17 @@
+{
+  "run_id": "fixture-run-001",
+  "tender_file_path": "fixtures/tender.pdf",
+  "response_template_file_path": "fixtures/template.docx",
+  "is_verified": true,
+  "workspace_slug": "rfp-fixture",
+  "requirements": {"scope_summary": "Secure platform"},
+  "research_summary": "Relevant market context",
+  "research_relevant": true,
+  "draft_proposal": "# Proposal",
+  "generation_attempts": 1,
+  "security_passed": true,
+  "quality_passed": true,
+  "quality_report": {"evaluation_available": true},
+  "status": "done",
+  "errors": []
+}

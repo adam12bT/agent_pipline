@@ -1,0 +1,86 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rfp-pipeline"
+version = "0.2.0"
+description = "Contract-driven multi-agent tender response pipeline"
+requires-python = ">=3.11"
+dependencies = [
+  "pydantic>=2,<3",
+  "python-dotenv",
+  "requests",
+]
+
+[project.optional-dependencies]
+verifier = ["python-docx", "pypdf"]
+extraction = ["json-repair", "python-docx", "pypdf"]
+research = [
+  "gpt-researcher @ https://github.com/assafelovic/gpt-researcher/archive/5cdad9cb434754188b78bd998df18dd8d502cf7e.tar.gz",
+  "ddgs",
+  "langchain-huggingface",
+  "langchain-groq",
+  "sentence-transformers==4.1.0",
+  "transformers==4.51.3",
+]
+generation = ["langgraph", "json-repair"]
+security = []
+security-guard = ["llm-guard", "presidio-analyzer"]
+quality = ["json-repair"]
+orchestration = ["langgraph"]
+api = ["fastapi", "uvicorn[standard]", "python-multipart"]
+full = [
+  "langgraph",
+  "json-repair",
+  "python-docx",
+  "pypdf",
+  "gpt-researcher @ https://github.com/assafelovic/gpt-researcher/archive/5cdad9cb434754188b78bd998df18dd8d502cf7e.tar.gz",
+  "ddgs",
+  "langchain-huggingface",
+  "langchain-groq",
+  "sentence-transformers==4.1.0",
+  "transformers==4.51.3",
+  "fastapi",
+  "uvicorn[standard]",
+  "python-multipart",
+]
+
+[project.scripts]
+rfp-pipeline = "rfp.cli:main"
+rfp-compare = "rfp.compatibility_cli:main"
+
+[tool.setuptools]
+include-package-data = true
+packages = [
+  "rfp",
+  "rfp.contracts",
+  "rfp.adapters",
+  "rfp.agents",
+  "rfp.agents.verifier",
+  "rfp.agents.verifier.tests",
+  "rfp.agents.extraction",
+  "rfp.agents.extraction.tests",
+  "rfp.agents.research",
+  "rfp.agents.research.tests",
+  "rfp.agents.generation",
+  "rfp.agents.generation.tests",
+  "rfp.agents.security",
+  "rfp.agents.security.tests",
+  "rfp.agents.quality",
+  "rfp.agents.quality.tests",
+  "rfp.orchestration",
+  "rfp.api",
+  "providers",
+]
+py-modules = [
+  "ingest_company_corpus",
+  "logging_config",
+  "pipeline_progress",
+]
+
+[tool.setuptools.package-dir]
+rfp = "src/rfp"
+
+[tool.setuptools.package-data]
+"*" = ["agent.toml"]

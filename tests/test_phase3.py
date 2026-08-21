@@ -5,23 +5,26 @@ from unittest.mock import Mock, patch
 
 from docx import Document
 
-from agents.generation_agent import (
+from rfp.agents.generation.implementation import (
     _fit_generation_prompt,
+    _merge_section_drafts,
     _normalize_batch_headings,
     _proposal_structure,
     _section_batches,
     _split_batch_sections,
+    generation_agent,
 )
-from agents.graph import _route_after_generation
-from agents.extraction_agent import (
+from rfp.orchestration.routing import after_generation
+from rfp.agents.extraction.implementation import (
     _extract_template_sections,
     _merge_template_outline,
 )
-from agents.quality_agent import (
+from rfp.agents.quality.implementation import (
     _check_section_order,
     _check_template_compliance,
     _evaluate_grounding_and_coherence,
     _extract_review_json,
+    _identify_failed_sections,
     _review_groups,
     _template_sections,
     quality_agent,
@@ -60,6 +63,100 @@ class ResponseTemplateQualityTests(unittest.TestCase):
         self.assertIn("Contexte vérifié.", content[sections[0]])
         self.assertIn("Approche proposée.", content[sections[1]])
 
+    def test_quality_maps_a_claim_to_only_its_template_section(self):
+        sections = ["1. Context", "2. Solution", "3. Schedule"]
+        claim = "The proposed platform guarantees unlimited availability."
+        draft = (
+            "## 1. Context\nTender facts.\n\n"
+            f"## 2. Solution\n{claim}\n\n"
+            "## 3. Schedule\nThirty-two week schedule."
+        )
+
+        failed = _identify_failed_sections(
+            draft=draft,
+            sections=sections,
+            missing_sections=[],
+            out_of_order_sections=[],
+            quality_findings={},
+            grounding_review={
+                "groundedness_score": 0.8,
+                "coherence_score": 0.9,
+                "unsupported_claims": [],
+                "contradictions": [{"claim": claim, "evidence": "unsupported"}],
+            },
+            word_count=200,
+        )
+
+        self.assertEqual(failed, ["2. Solution"])
+
+    def test_retry_regenerates_only_failed_section_and_preserves_others(self):
+        sections = ["1. Context", "2. Solution", "3. Schedule"]
+        previous_draft = (
+            "## 1. Context\nAccepted context.\n\n"
+            "## 2. Solution\nUnsupported guarantee.\n\n"
+            "## 3. Schedule\nAccepted schedule."
+        )
+        prior_batches = [
+            {
+                "sections": [section],
+                "draft": block,
+                "tender_excerpts": "evidence",
+                "response_template_excerpts": "instructions",
+            }
+            for section, block in _split_batch_sections(
+                previous_draft, sections
+            ).items()
+        ]
+        rag = Mock()
+        rag.query.return_value = "relevant evidence"
+        knowledge = Mock()
+        provider = Mock()
+        provider.complete.return_value = (
+            "## 2. Solution\nRepaired solution grounded in tender evidence."
+        )
+
+        with patch(
+            "rfp.agents.generation.implementation.get_provider",
+            return_value=provider,
+        ):
+            result = generation_agent(
+                {
+                    "is_verified": True,
+                    "workspace_slug": "tender",
+                    "response_template_workspace_slug": "template",
+                    "requirements": {
+                        "scope_summary": "digital platform",
+                        "response_template": {
+                            "required_sections": sections,
+                            "section_order": sections,
+                        },
+                    },
+                    "research_summary": "relevant research",
+                    "previous_draft": previous_draft,
+                    "previous_generation_evidence": {
+                        "section_batches": prior_batches,
+                        "project_references": "references",
+                        "cv_excerpts": "profiles",
+                        "past_proposals": "proposals",
+                    },
+                    "generation_attempts": 1,
+                    "quality_report": {"failed_sections": ["2. Solution"]},
+                },
+                rag=rag,
+                knowledge=knowledge,
+            )
+
+        self.assertEqual(provider.complete.call_count, 1)
+        self.assertIn("Accepted context.", result["draft_proposal"])
+        self.assertIn("Repaired solution grounded", result["draft_proposal"])
+        self.assertIn("Accepted schedule.", result["draft_proposal"])
+        self.assertNotIn("Unsupported guarantee.", result["draft_proposal"])
+        self.assertTrue(result["generation_evidence"]["repair_mode"])
+        self.assertEqual(
+            result["generation_evidence"]["repaired_sections"],
+            ["2. Solution"],
+        )
+
     def test_quality_evaluator_falls_back_when_groq_rejects_json_mode(self):
         provider = Mock()
         provider.complete.side_effect = [
@@ -77,7 +174,7 @@ class ResponseTemplateQualityTests(unittest.TestCase):
             }""",
         ]
 
-        with patch("agents.quality_agent.get_provider", return_value=provider):
+        with patch("rfp.agents.quality.implementation.get_provider", return_value=provider):
             review = _evaluate_grounding_and_coherence(
                 {"generation_evidence": {"requirements": {"scope": "Test"}}},
                 "# Proposal\nGrounded draft content.",
@@ -194,7 +291,7 @@ class ResponseTemplateQualityTests(unittest.TestCase):
         }
 
         with patch(
-            "agents.quality_agent._evaluate_grounding_and_coherence",
+            "rfp.agents.quality.implementation._evaluate_grounding_and_coherence",
             return_value=evaluator_result,
         ):
             result = quality_agent(
@@ -212,7 +309,7 @@ class ResponseTemplateQualityTests(unittest.TestCase):
                 }
             )
 
-        self.assertEqual(result["status"], "failed")
+        self.assertFalse(result["quality_passed"])
 
     def test_quality_review_uses_one_compact_group_by_default(self):
         section_batches = [
@@ -254,7 +351,7 @@ class ResponseTemplateQualityTests(unittest.TestCase):
         }
 
         with patch(
-            "agents.quality_agent._evaluate_grounding_and_coherence",
+            "rfp.agents.quality.implementation._evaluate_grounding_and_coherence",
             return_value=evaluator_result,
         ):
             result = quality_agent(
@@ -266,7 +363,7 @@ class ResponseTemplateQualityTests(unittest.TestCase):
                 }
             )
 
-        self.assertEqual(result["status"], "failed")
+        self.assertFalse(result["quality_passed"])
         self.assertFalse(result["quality_passed"])
         self.assertFalse(result["quality_report"]["evaluation_available"])
         self.assertFalse(
@@ -293,9 +390,9 @@ class ResponseTemplateQualityTests(unittest.TestCase):
         )
 
     def test_empty_generation_stops_before_security(self):
-        self.assertNotEqual(_route_after_generation({"draft_proposal": ""}), "security")
+        self.assertNotEqual(after_generation({"generation": {"draft_proposal": ""}}), "security")
         self.assertEqual(
-            _route_after_generation({"draft_proposal": "proposal"}), "security"
+            after_generation({"generation": {"draft_proposal": "proposal"}}), "security"
         )
 
     def test_client_template_replaces_default_generation_outline(self):

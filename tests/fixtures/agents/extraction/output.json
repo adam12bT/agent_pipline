@@ -1,0 +1,70 @@
+{
+  "requirements": {
+    "scope_summary": "This tender seeks a solution for a new digital platform, including portal development, back-office functionality, and a reference data repository, with specific requirements around API-first architecture, cloud hosting, and security standards. The project has a maximum duration of 32 weeks and a budget of 480,000 TND.",
+    "deliverables": [
+      "User Portal",
+      "Back-office System",
+      "Reference Data Repository",
+      "Reporting Tools"
+    ],
+    "technical_constraints": [
+      "API-first architecture",
+      "Services containerized",
+      "Separation of environments and infrastructure as code",
+      "Cloud sovereign approved by the client; data primary hosted in Tunisia",
+      "TLS 1.3, AES-256 encryption at rest, MFA administrator, RBAC, and immutable logging",
+      "95% of interactive pages under 2 seconds with 1,000 concurrent users"
+    ],
+    "contractual_constraints": [
+      "Total amount not exceeding 480,000 TND TTC",
+      "Offer validity of 120 days",
+      "12-month warranty after provisional acceptance",
+      "Payments linked to formally accepted deliverables",
+      "PDF technical and financial submission documents"
+    ],
+    "mandatory_requirements": [
+      "Comprehension and methodology (20 points)",
+      "Architecture, security and integrations (18 points)",
+      "Planning, governance and risk management (12 points)",
+      "Proposed team (12 points)",
+      "Relevant references (8 points)"
+    ],
+    "deadlines": {
+      "submission_deadline": "30 septembre 2026 à 16:00 - heure de Tunis",
+      "project_duration": "32 semaines, puis 12 mois de garantie"
+    },
+    "_extraction_note": "Response appeared truncated (likely hit a token limit); auto-repaired by closing the open brackets. Spot-check the last field before trusting it fully.",
+    "response_template": {
+      "required_sections": [
+        "Règles obligatoires de présentation / Mandatory Presentation Rules",
+        "1. Résumé exécutif / Executive Summary",
+        "2. Compréhension du besoin / Understanding of the Requirements",
+        "3. Conformité aux exigences / Requirements Compliance",
+        "4. Approche et méthodologie / Proposed Approach and Methodology",
+        "5. Plan de travail et calendrier / Work Plan and Timeline",
+        "6. Organisation et gouvernance / Organisation and Governance",
+        "7. Équipe proposée / Proposed Team",
+        "8. Gestion des risques et assurance qualité / Risk Management and Quality Assurance",
+        "9. Références pertinentes / Relevant Project References",
+        "10. Proposition financière / Financial Proposal",
+        "11. Annexes / Appendices"
+      ],
+      "section_order": [
+        "Règles obligatoires de présentation / Mandatory Presentation Rules",
+        "1. Résumé exécutif / Executive Summary",
+        "2. Compréhension du besoin / Understanding of the Requirements",
+        "3. Conformité aux exigences / Requirements Compliance",
+        "4. Approche et méthodologie / Proposed Approach and Methodology",
+        "5. Plan de travail et calendrier / Work Plan and Timeline",
+        "6. Organisation et gouvernance / Organisation and Governance",
+        "7. Équipe proposée / Proposed Team",
+        "8. Gestion des risques et assurance qualité / Risk Management and Quality Assurance",
+        "9. Références pertinentes / Relevant Project References",
+        "10. Proposition financière / Financial Proposal",
+        "11. Annexes / Appendices"
+      ],
+      "outline_source": "local_document_structure"
+    }
+  },
+  "errors": []
+}

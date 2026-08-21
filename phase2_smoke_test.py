@@ -11,8 +11,8 @@ import json
 import os
 from dataclasses import dataclass
 
-from anythingllm_client import AnythingLLMClient
-from retrieval import search_relevant_chunks
+from rfp.adapters.anythingllm_client import AnythingLLMClient
+from rfp.adapters.retrieval import search_relevant_chunks
 
 
 @dataclass(frozen=True)

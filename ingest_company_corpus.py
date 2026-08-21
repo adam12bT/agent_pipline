@@ -18,13 +18,12 @@ import json
 import os
 from datetime import datetime, timezone
 
-from anythingllm_client import AnythingLLMClient
-from company_knowledge import (
-    PROPOSALS_WORKSPACE,
-    CVS_WORKSPACE,
-    REFERENCES_WORKSPACE,
-    ensure_company_workspaces,
-)
+from rfp.adapters import AnythingLLMAdapter
+from rfp.adapters.anythingllm import KNOWLEDGE_CATEGORIES
+
+PROPOSALS_WORKSPACE = KNOWLEDGE_CATEGORIES["past_proposals"]
+CVS_WORKSPACE = KNOWLEDGE_CATEGORIES["cvs"]
+REFERENCES_WORKSPACE = KNOWLEDGE_CATEGORIES["project_references"]
 
 CORPUS_ROOT = os.path.join(os.path.dirname(__file__), "company_corpus")
 MANIFEST_PATH = os.path.join(CORPUS_ROOT, ".ingestion_manifest.json")
@@ -73,13 +72,13 @@ def _save_manifest(manifest: dict) -> None:
 
 
 def ingest_all(force: bool = False) -> dict:
-    client = AnythingLLMClient()
+    adapter = AnythingLLMAdapter()
     manifest = _load_manifest()
     indexed_documents = manifest.setdefault("documents", {})
     report = {"uploaded": [], "skipped": [], "failed": []}
 
     print("Ensuring the 3 company knowledge workspaces exist...")
-    status = ensure_company_workspaces(client)
+    status = adapter.ensure_ready()
     for slug, info in status.items():
         print(f"  {slug}: {'created' if info['created'] else 'already existed'}")
 
@@ -108,7 +107,7 @@ def ingest_all(force: bool = False) -> dict:
                 continue
 
             try:
-                upload_result = client.upload_document(file_path, workspace_slug)
+                upload_result = adapter.upload_knowledge(folder_name, file_path)
                 print(f"  OK: {os.path.basename(file_path)}")
                 report["uploaded"].append(relative_path)
                 indexed_documents[manifest_key] = {

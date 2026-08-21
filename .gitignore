@@ -22,7 +22,9 @@ anything-llm-lightweight/.env
 # OS junk
 .DS_Store
 Thumbs.db
-
+*.egg-info/
+build/
+dist/
 # Local company knowledge (often confidential) and generated ingestion state
 company_corpus/**/*.pdf
 company_corpus/**/*.docx
