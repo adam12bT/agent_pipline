@@ -113,10 +113,6 @@ RELEVANT PAST PROPOSALS (for tone/structure reference only — do not copy text 
 just match the general style and level of detail):
 {past_proposals}
 
-COMPLETED PROPOSAL SECTIONS (available when the assigned section is a summary; summarize these \
-without inventing facts and do not reproduce their headings):
-{completed_proposal_context}
-
 MANDATORY PROPOSAL STRUCTURE:
 {proposal_structure}
 

@@ -4,7 +4,6 @@ import json
 import logging
 import os
 import re
-import unicodedata
 
 from .prompts import GENERATION_PROMPT_TEMPLATE
 from providers import get_provider
@@ -69,29 +68,6 @@ def _section_batches(
 def _batches_for_sections(sections: list[str], batch_size: int) -> list[list[str]]:
     size = max(1, batch_size)
     return [sections[index : index + size] for index in range(0, len(sections), size)]
-
-
-def _is_summary_section(title: str) -> bool:
-    """Identify executive-summary headings without depending on one template."""
-    normalized = unicodedata.normalize("NFKD", str(title).casefold())
-    normalized = "".join(char for char in normalized if not unicodedata.combining(char))
-    normalized = re.sub(r"[^a-z0-9]+", " ", normalized).strip()
-    return any(
-        phrase in normalized
-        for phrase in (
-            "executive summary",
-            "resume executif",
-            "synthese executive",
-            "management summary",
-        )
-    )
-
-
-def _generation_order(sections: list[str]) -> list[str]:
-    """Generate summary sections last so they can summarize completed content."""
-    regular = [section for section in sections if not _is_summary_section(section)]
-    summaries = [section for section in sections if _is_summary_section(section)]
-    return regular + summaries
 
 
 def _rule_items(value) -> list[str]:
@@ -357,25 +333,6 @@ def _merge_section_drafts(
     return "\n\n".join(merged)
 
 
-def _completed_context_for_summary(
-    previous_draft: str,
-    all_sections: list[str],
-    replacements: dict[str, str],
-    excluded_sections: list[str],
-) -> str:
-    """Assemble completed non-summary sections in final template order."""
-    previous = _split_batch_sections(previous_draft, all_sections)
-    excluded = set(excluded_sections)
-    blocks = []
-    for section in all_sections:
-        if section in excluded:
-            continue
-        content = replacements.get(section) or previous.get(section)
-        if content and content.strip():
-            blocks.append(content.strip())
-    return "\n\n".join(blocks)
-
-
 def _rebuild_section_evidence(
     all_sections: list[str],
     final_draft: str,
@@ -428,7 +385,6 @@ def _fit_generation_prompt(format_values: dict, max_chars: int) -> tuple[str, di
     headings intact, then progressively trim optional evidence fields.
     """
     fitted = {key: str(value) for key, value in format_values.items()}
-    fitted.setdefault("completed_proposal_context", "(not available)")
     prompt = GENERATION_PROMPT_TEMPLATE.format(**fitted)
     if len(prompt) <= max_chars:
         return prompt, fitted
@@ -442,7 +398,6 @@ def _fit_generation_prompt(format_values: dict, max_chars: int) -> tuple[str, di
         ("project_references", 500),
         ("cv_excerpts", 500),
         ("response_template_excerpts", 700),
-        ("completed_proposal_context", 1800),
         ("tender_excerpts", 1200),
         ("requirements", 1200),
         ("response_template_rules", 700),
@@ -473,7 +428,6 @@ def _fit_generation_prompt(format_values: dict, max_chars: int) -> tuple[str, di
         ("revision_feedback", 0),
         ("project_references", 200),
         ("cv_excerpts", 200),
-        ("completed_proposal_context", 800),
         ("tender_excerpts", 500),
         ("requirements", 500),
     ]
@@ -589,10 +543,9 @@ def generation_agent(state: dict, *, rag=None, knowledge=None) -> dict:
         ]
     selected_sections = repair_sections or all_sections
     repair_mode = bool(repair_sections)
-    generation_sections = _generation_order(selected_sections)
-    batches = _batches_for_sections(generation_sections, batch_size=batch_size)
+    batches = _batches_for_sections(selected_sections, batch_size=batch_size)
     run_id = state.get("run_id")
-    start_generation(run_id, batches, section_order=selected_sections)
+    start_generation(run_id, batches)
 
     retained_batches = []
     if repair_mode:
@@ -654,14 +607,6 @@ def generation_agent(state: dict, *, rag=None, knowledge=None) -> dict:
                     "without changing facts supported elsewhere in the proposal."
                 ),
             }
-        completed_proposal_context = "(not applicable to this section)"
-        if any(_is_summary_section(section) for section in sections):
-            completed_proposal_context = _completed_context_for_summary(
-                previous_draft,
-                all_sections,
-                replacement_sections,
-                sections,
-            ) or "(no completed proposal sections were available)"
         prompt, fitted_context = _fit_generation_prompt(
             {
                 "batch_number": batch_number,
@@ -685,9 +630,6 @@ def generation_agent(state: dict, *, rag=None, knowledge=None) -> dict:
                 "project_references": _clip(project_references, context_limit),
                 "cv_excerpts": _clip(cv_excerpts, context_limit),
                 "past_proposals": _clip(past_proposals, context_limit),
-                "completed_proposal_context": _clip(
-                    completed_proposal_context, context_limit
-                ),
             },
             prompt_max_chars,
         )
@@ -705,9 +647,6 @@ def generation_agent(state: dict, *, rag=None, knowledge=None) -> dict:
             "project_references": fitted_context["project_references"],
             "cv_excerpts": fitted_context["cv_excerpts"],
             "past_proposals": fitted_context["past_proposals"],
-            "completed_proposal_context": fitted_context[
-                "completed_proposal_context"
-            ],
             "prompt_chars": len(prompt),
             "template_source": response_template_rules.get(
                 "template_source", "default"
@@ -783,8 +722,7 @@ def generation_agent(state: dict, *, rag=None, knowledge=None) -> dict:
                 "errors": [error_msg],
             }
 
-    # Calls may run in a different order (for example, summaries last), but the
-    # delivered document always follows the selected template's exact order.
+    # Assemble through the template order rather than relying on call order.
     draft = _merge_section_drafts(
         previous_draft if repair_mode else "",
         all_sections,

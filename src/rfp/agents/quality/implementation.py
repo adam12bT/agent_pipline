@@ -505,11 +505,6 @@ def _review_groups(state: dict, draft: str) -> list[tuple[dict, str]]:
                         str(batch.get("draft", "")),
                         300,
                     ),
-                    "completed_proposal_context": _relevant_evidence_excerpt(
-                        batch.get("completed_proposal_context", ""),
-                        str(batch.get("draft", "")),
-                        800,
-                    ),
                 }
                 for batch in selected
             ],

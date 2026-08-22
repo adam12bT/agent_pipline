@@ -275,32 +275,6 @@ class ResponseTemplateQualityTests(unittest.TestCase):
         self.assertIn("Do not invent specific figures", prompt)
         self.assertLess(len(fitted["research_summary"]), len(huge))
 
-    def test_generation_prompt_fits_summary_context_under_hosted_budget(self):
-        huge = "Dense tender and completed proposal context. " * 1000
-        prompt, fitted = _fit_generation_prompt(
-            {
-                "batch_number": 8,
-                "batch_count": 8,
-                "tender_excerpts": huge,
-                "response_template_excerpts": huge,
-                "response_template_rules": huge,
-                "proposal_structure": "## Executive Summary\nTarget length: 300-420 words.",
-                "revision_feedback": huge,
-                "requirements": huge,
-                "research_summary": huge,
-                "project_references": huge,
-                "cv_excerpts": huge,
-                "past_proposals": huge,
-                "completed_proposal_context": huge,
-            },
-            max_chars=11000,
-        )
-
-        self.assertLessEqual(len(prompt), 11000)
-        self.assertIn("## Executive Summary", prompt)
-        self.assertIn("Do not invent specific figures", prompt)
-        self.assertLess(len(fitted["completed_proposal_context"]), len(huge))
-
     def test_quality_failure_does_not_regenerate_by_default(self):
         sections = ["Contexte", "Solution", "Planning"]
         draft = "\n".join(
