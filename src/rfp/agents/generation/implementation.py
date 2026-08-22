@@ -209,12 +209,16 @@ def _proposal_structure(
     return "\n".join(lines)
 
 
+import unicodedata
+
 def _canonical_heading(value: str) -> str:
     heading = str(value).strip().casefold()
     heading = re.sub(r"^\s{0,3}#{1,6}\s*", "", heading)
     heading = re.sub(r"[*_`]", "", heading)
     heading = re.sub(r"^\s*(?:section\s+)?\d+(?:\.\d+)*[.)\-:]?\s*", "", heading)
-    return re.sub(r"\s+", " ", heading).strip(" :-–—")
+    heading = re.sub(r"\s+", " ", heading).strip(" :-–—")
+    normalized = unicodedata.normalize("NFKD", heading)
+    return "".join(ch for ch in normalized if not unicodedata.combining(ch))
 
 
 def _heading_aliases(section: str) -> set[str]:
