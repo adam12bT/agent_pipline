@@ -37,6 +37,30 @@ from rfp.agents.quality.implementation import (
 
 
 class ResponseTemplateQualityTests(unittest.TestCase):
+    def test_single_paraphrased_heading_is_mapped_to_dynamic_section(self):
+        expected = "1. Client-defined title / Exact English title"
+        body = " ".join(["Grounded section content"] * 12)
+
+        draft, unmatched = _normalize_batch_headings(
+            f"## A paraphrased title\n{body}",
+            [expected],
+        )
+
+        self.assertEqual(unmatched, [])
+        self.assertTrue(draft.startswith(f"## {expected}"))
+        self.assertIn(body, draft)
+
+    def test_multiple_unexpected_peer_headings_are_not_mapped(self):
+        expected = "Dynamic assigned section"
+
+        draft, unmatched = _normalize_batch_headings(
+            "## Unexpected one\nContent.\n## Unexpected two\nContent.",
+            [expected],
+        )
+
+        self.assertEqual(unmatched, [expected])
+        self.assertNotIn(f"## {expected}", draft)
+
     def test_single_section_prose_without_heading_is_preserved(self):
         section = "Dynamic client section"
         prose = " ".join(["Grounded delivery detail"] * 12)

@@ -275,6 +275,20 @@ def _normalize_batch_headings(draft: str, sections: list[str]) -> tuple[str, lis
             continue
         lines[matched_line] = f"## {section}"
         used_lines.add(matched_line)
+
+    # Generation intentionally uses one dynamic template section per call. If the
+    # model returns exactly one peer heading but paraphrases its title, it can only
+    # belong to the assigned section. Rename it safely. Multiple peer headings are
+    # still rejected because they may be an unwanted outline continuation.
+    if len(sections) == 1 and unmatched:
+        peer_headings = [
+            index
+            for index, line in enumerate(lines)
+            if re.match(r"^\s{0,3}#{1,2}\s+", line)
+        ]
+        if len(peer_headings) == 1:
+            lines[peer_headings[0]] = f"## {sections[0]}"
+            unmatched = []
     return "\n".join(lines), unmatched
 
 
