@@ -460,6 +460,46 @@ def _fit_generation_prompt(format_values: dict, max_chars: int) -> tuple[str, di
         fitted[field] = _truncate_to_length(current, max(minimum, target))
         prompt = GENERATION_PROMPT_TEMPLATE.format(**fitted)
 
+    # The preferred evidence floors above improve quality, but they are not
+    # hard requirements. On a dense template their combined size can still
+    # exceed the hosted request budget. Degrade duplicated/optional context
+    # further instead of aborting the entire pipeline. The exact assigned
+    # proposal heading and all fixed grounding instructions remain untouched.
+    emergency_order = [
+        ("past_proposals", 0),
+        ("research_summary", 0),
+        ("response_template_excerpts", 0),
+        ("response_template_rules", 0),
+        ("revision_feedback", 0),
+        ("project_references", 200),
+        ("cv_excerpts", 200),
+        ("completed_proposal_context", 800),
+        ("tender_excerpts", 500),
+        ("requirements", 500),
+    ]
+    for field, minimum in emergency_order:
+        overflow = len(prompt) - max_chars
+        if overflow <= 0:
+            break
+        current = fitted.get(field, "")
+        reducible = max(0, len(current) - minimum)
+        if not reducible:
+            continue
+        target = len(current) - min(reducible, overflow + 50)
+        fitted[field] = _truncate_to_length(current, max(minimum, target))
+        prompt = GENERATION_PROMPT_TEMPLATE.format(**fitted)
+
+    # Last-resort fit: if even the emergency evidence floors do not fit, clear
+    # optional context fields one by one. This is preferable to losing every
+    # generated section; quality evaluation will still reject unsupported text.
+    if len(prompt) > max_chars:
+        for field, _ in emergency_order:
+            if len(prompt) <= max_chars:
+                break
+            if fitted.get(field):
+                fitted[field] = ""
+                prompt = GENERATION_PROMPT_TEMPLATE.format(**fitted)
+
     if len(prompt) > max_chars:
         raise ValueError(
             "The fixed generation instructions exceed the configured total "
