@@ -269,18 +269,18 @@ def _identify_failed_sections(
     sections: list[str],
     missing_sections: list[str],
     out_of_order_sections: list[str],
-    duplicate_sections: list[str],
-    incomplete_sections: list[str],
     quality_findings: dict,
     grounding_review: dict,
     word_count: int,
+    duplicate_sections: list[str] | None = None,
+    incomplete_sections: list[str] | None = None,
 ) -> list[str]:
     """Map quality failures to the smallest safe set of template sections."""
     failed = (
         set(missing_sections)
         | set(out_of_order_sections)
-        | set(duplicate_sections)
-        | set(incomplete_sections)
+        | set(duplicate_sections or [])
+        | set(incomplete_sections or [])
     )
     unmapped_contradiction = False
 
@@ -504,6 +504,11 @@ def _review_groups(state: dict, draft: str) -> list[tuple[dict, str]]:
                         batch.get("response_template_excerpts", ""),
                         str(batch.get("draft", "")),
                         300,
+                    ),
+                    "completed_proposal_context": _relevant_evidence_excerpt(
+                        batch.get("completed_proposal_context", ""),
+                        str(batch.get("draft", "")),
+                        800,
                     ),
                 }
                 for batch in selected

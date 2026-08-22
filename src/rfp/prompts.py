@@ -80,7 +80,7 @@ RESEARCH_QUERY_GUARDRAILS = (
 GENERATION_PROMPT_TEMPLATE = """You are a senior bid writer producing batch {batch_number} of \
 {batch_count} for a formal proposal in response to the tender document below. Generate \
 ONLY the headings assigned to this batch. This is a formal deliverable that \
-will be submitted to the client for evaluation — not a cover letter and not an executive summary. \
+will be submitted to the client for evaluation, not a conversational answer or cover letter. \
 Each section below must be written in complete, substantive paragraphs with real analysis and \
 detail grounded in the material provided. Shallow, generic filler is worse than a shorter section \
 that is actually specific to this tender.
@@ -112,6 +112,10 @@ RELEVANT CONSULTANT CVs (company evidence; use these and only these wherever the
 RELEVANT PAST PROPOSALS (for tone/structure reference only — do not copy text verbatim, \
 just match the general style and level of detail):
 {past_proposals}
+
+COMPLETED PROPOSAL SECTIONS (available when the assigned section is a summary; summarize these \
+without inventing facts and do not reproduce their headings):
+{completed_proposal_context}
 
 MANDATORY PROPOSAL STRUCTURE:
 {proposal_structure}

@@ -21,13 +21,28 @@ def _word_count(value: str) -> int:
     return len(re.findall(r"\b[\w'-]+\b", value, flags=re.UNICODE))
 
 
-def start_generation(run_id: str | None, batches: list[list[str]]) -> None:
+def start_generation(
+    run_id: str | None,
+    batches: list[list[str]],
+    section_order: list[str] | None = None,
+) -> None:
     if not run_id:
         return
-    sections = [
-        {"title": title, "status": "waiting", "content": "", "batch": batch_number}
+    batch_by_title = {
+        title: batch_number
         for batch_number, batch in enumerate(batches, start=1)
         for title in batch
+    }
+    ordered_titles = section_order or [title for batch in batches for title in batch]
+    sections = [
+        {
+            "title": title,
+            "status": "waiting",
+            "content": "",
+            "batch": batch_by_title[title],
+        }
+        for title in ordered_titles
+        if title in batch_by_title
     ]
     with _LOCK:
         _PROGRESS[run_id] = {
