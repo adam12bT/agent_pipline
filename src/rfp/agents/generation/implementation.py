@@ -2,6 +2,7 @@
 
 import json
 import logging
+import math
 import os
 import re
 
@@ -314,12 +315,79 @@ def _split_batch_sections(draft: str, sections: list[str]) -> dict[str, str]:
     return content
 
 
+def _recover_single_section_response(
+    draft: str,
+    sections: list[str],
+    generated_sections: dict[str, str],
+) -> dict[str, str]:
+    """Preserve substantive one-section output when its Markdown heading is absent.
+
+    Some models follow the content instruction but return prose without the requested
+    heading. Since generation uses one dynamic template section per request, that prose
+    can be assigned safely without relying on a named or hard-coded section.
+    """
+    if len(sections) != 1 or generated_sections:
+        return generated_sections
+
+    section = sections[0]
+    lines = draft.strip().splitlines()
+    if not lines:
+        return generated_sections
+
+    # Remove an unformatted copy of the expected title, but never absorb a different
+    # top-level outline into this section.
+    if _canonical_heading(lines[0]) in _heading_aliases(section):
+        lines = lines[1:]
+    if any(re.match(r"^\s{0,3}#{1,2}\s+", line) for line in lines):
+        return generated_sections
+
+    body = "\n".join(lines).strip()
+    if len(re.findall(r"\b[\wÀ-ÖØ-öø-ÿ'-]+\b", body, flags=re.UNICODE)) < 12:
+        return generated_sections
+
+    return {section: f"## {section}\n\n{body}"}
+
+
+def _batch_output_token_limit(
+    response_template_rules: dict,
+    section_count: int,
+) -> int:
+    """Calculate enough output room for the template-derived word target.
+
+    The environment value remains a safety ceiling. The default is intentionally
+    larger than the old 1,600-token cap because reasoning-capable models may count
+    internal reasoning against their completion allowance.
+    """
+    _, maximum_words, _ = _template_section_word_target(
+        response_template_rules,
+        section_count,
+    )
+    estimated_tokens = math.ceil(maximum_words * 1.7) + 384
+    configured_ceiling = max(
+        1024,
+        int(os.environ.get("GENERATION_BATCH_MAX_TOKENS", "2400")),
+    )
+    return min(configured_ceiling, max(1800, estimated_tokens))
+
+
 def _section_body(block: str) -> str:
     """Return section body content without its first Markdown heading."""
     lines = block.strip().splitlines()
     if lines and re.match(r"^\s{0,3}#{1,6}\s+", lines[0]):
         lines = lines[1:]
     return "\n".join(lines).strip()
+
+
+def _has_substantive_section_body(block: str) -> bool:
+    body = _section_body(block)
+    return len(
+        re.findall(r"\b[\wÀ-ÖØ-öø-ÿ'-]+\b", body, flags=re.UNICODE)
+    ) >= 12
+
+
+def _completion_was_truncated(metadata: dict) -> bool:
+    reason = str(metadata.get("finish_reason") or "").strip().casefold()
+    return reason in {"length", "max_tokens", "max_token", "token_limit"}
 
 
 def _merge_section_drafts(
@@ -522,13 +590,8 @@ def generation_agent(state: dict, *, rag=None, knowledge=None) -> dict:
     attempt_number = state.get("generation_attempts", 0) + 1
     previous_draft = state.get("previous_draft", "")
     # One section per call prevents a detailed early section from consuming the
-    # output allowance reserved for later headings. A 1,600-token response is
-    # ample for the largest 700-word section and remains below hosted limits.
+    # output allowance reserved for later headings.
     batch_size = 1
-    batch_max_tokens = min(
-        1600,
-        max(512, int(os.environ.get("GENERATION_BATCH_MAX_TOKENS", "1600"))),
-    )
     context_limit = max(
         2000, int(os.environ.get("GENERATION_CONTEXT_MAX_CHARS", "6000"))
     )
@@ -537,6 +600,10 @@ def generation_agent(state: dict, *, rag=None, knowledge=None) -> dict:
         max(8000, int(os.environ.get("GENERATION_PROMPT_MAX_CHARS", "11000"))),
     )
     all_sections = _proposal_sections(response_template_rules)
+    batch_max_tokens = _batch_output_token_limit(
+        response_template_rules,
+        len(all_sections),
+    )
     repair_sections = []
     if attempt_number > 1 and previous_draft.strip():
         requested_repairs = revision_feedback.get("failed_sections", []) if isinstance(
@@ -666,15 +733,23 @@ def generation_agent(state: dict, *, rag=None, knowledge=None) -> dict:
         )
 
         try:
+            completion_metadata: dict = {}
             batch_draft = get_provider().complete(
                 prompt,
                 max_tokens=batch_max_tokens,
                 request_label=f"generation.batch_{batch_number}_of_{len(batches)}",
                 reasoning_effort="low",
                 include_reasoning=False,
+                completion_metadata=completion_metadata,
             ).strip()
             if not batch_draft:
                 raise ValueError("the model returned an empty section batch")
+            if _completion_was_truncated(completion_metadata):
+                raise ValueError(
+                    "the model reached its output-token limit before completing the "
+                    f"section (limit={batch_max_tokens}); increase "
+                    "GENERATION_BATCH_MAX_TOKENS"
+                )
             batch_draft = _repair_mojibake(batch_draft)
             batch_draft, unmatched_headings = _normalize_batch_headings(
                 batch_draft, sections
@@ -687,6 +762,21 @@ def generation_agent(state: dict, *, rag=None, knowledge=None) -> dict:
                     unmatched_headings,
                 )
             generated_sections = _split_batch_sections(batch_draft, sections)
+            generated_sections = {
+                section: block
+                for section, block in generated_sections.items()
+                if _has_substantive_section_body(block)
+            }
+            generated_sections = _recover_single_section_response(
+                batch_draft,
+                sections,
+                generated_sections,
+            )
+            if not generated_sections:
+                raise ValueError(
+                    "the model did not return substantive content for the assigned "
+                    "template section"
+                )
             # Keep only the sections assigned to this request. This prevents an
             # outline continuation from leaking into the preceding card/draft.
             batch_draft = "\n\n".join(

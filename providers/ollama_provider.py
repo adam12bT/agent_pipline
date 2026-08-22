@@ -73,6 +73,15 @@ class OllamaProvider(LLMProvider):
             )
             resp.raise_for_status()
             data = resp.json()
+            completion_metadata = kwargs.get("completion_metadata")
+            if isinstance(completion_metadata, dict):
+                completion_metadata.update(
+                    {
+                        "provider": self.name,
+                        "model": str(data.get("model") or self._model),
+                        "finish_reason": data.get("done_reason"),
+                    }
+                )
             prompt_tokens = data.get("prompt_eval_count")
             completion_tokens = data.get("eval_count")
             record_llm_call(

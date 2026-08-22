@@ -79,7 +79,7 @@ RESEARCH_QUERY_GUARDRAILS = (
 # Generation Agent
 GENERATION_PROMPT_TEMPLATE = """You are a senior bid writer producing batch {batch_number} of \
 {batch_count} for a formal proposal in response to the tender document below. Generate \
-ONLY the headings assigned to this batch. This is a formal deliverable that \
+ONLY the complete sections assigned to this batch. This is a formal deliverable that \
 will be submitted to the client for evaluation, not a conversational answer or cover letter. \
 Each section below must be written in complete, substantive paragraphs with real analysis and \
 detail grounded in the material provided. Shallow, generic filler is worse than a shorter section \

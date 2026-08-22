@@ -6,10 +6,14 @@ from unittest.mock import Mock, patch
 from docx import Document
 
 from rfp.agents.generation.implementation import (
+    _batch_output_token_limit,
+    _completion_was_truncated,
     _fit_generation_prompt,
     _merge_section_drafts,
     _normalize_batch_headings,
     _proposal_structure,
+    _recover_single_section_response,
+    _has_substantive_section_body,
     _section_batches,
     _split_batch_sections,
     generation_agent,
@@ -32,6 +36,42 @@ from rfp.agents.quality.implementation import (
 
 
 class ResponseTemplateQualityTests(unittest.TestCase):
+    def test_single_section_prose_without_heading_is_preserved(self):
+        section = "Dynamic client section"
+        prose = " ".join(["Grounded delivery detail"] * 12)
+
+        recovered = _recover_single_section_response(prose, [section], {})
+
+        self.assertEqual(list(recovered), [section])
+        self.assertTrue(recovered[section].startswith(f"## {section}"))
+        self.assertIn(prose, recovered[section])
+
+    def test_heading_only_response_is_not_treated_as_generated_content(self):
+        section = "Dynamic client section"
+
+        recovered = _recover_single_section_response(
+            f"## {section}", [section], {}
+        )
+
+        self.assertEqual(recovered, {})
+        split = _split_batch_sections(f"## {section}", [section])
+        self.assertFalse(_has_substantive_section_body(split[section]))
+
+    def test_provider_token_limit_is_detected(self):
+        self.assertTrue(_completion_was_truncated({"finish_reason": "length"}))
+        self.assertFalse(_completion_was_truncated({"finish_reason": "stop"}))
+
+    def test_dynamic_output_budget_has_room_for_largest_section(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("GENERATION_BATCH_MAX_TOKENS", None)
+            limit = _batch_output_token_limit(
+                {"section_order": ["Only section"]},
+                1,
+            )
+
+        self.assertGreater(limit, 1600)
+        self.assertLessEqual(limit, 2400)
+
     def test_bilingual_short_heading_is_restored_to_exact_template_title(self):
         expected = "5. Plan de travail et calendrier / Work Plan and Timeline"
         draft, unmatched = _normalize_batch_headings(
@@ -112,7 +152,8 @@ class ResponseTemplateQualityTests(unittest.TestCase):
         knowledge = Mock()
         provider = Mock()
         provider.complete.return_value = (
-            "## 2. Solution\nRepaired solution grounded in tender evidence."
+            "## 2. Solution\nRepaired solution grounded in tender evidence with concrete "
+            "activities, outputs, controls, responsibilities, and acceptance criteria."
         )
 
         with patch(
@@ -361,7 +402,7 @@ class ResponseTemplateQualityTests(unittest.TestCase):
             "external market context",
         )
 
-    def test_quality_review_adds_groups_when_draft_would_be_truncated(self):
+    def test_quality_review_keeps_one_balanced_group_for_large_draft(self):
         section_batches = [
             {
                 "sections": [f"S{index}"],
@@ -375,10 +416,11 @@ class ResponseTemplateQualityTests(unittest.TestCase):
             "full draft",
         )
 
-        self.assertGreater(len(groups), 1)
-        reviewed = "\n".join(group_draft for _, group_draft in groups)
+        self.assertEqual(len(groups), 1)
+        reviewed = groups[0][1]
         for index in range(4):
             self.assertIn(f"section-{index}", reviewed)
+        self.assertLessEqual(len(reviewed), 6000)
 
     def test_quality_evaluator_error_does_not_retry_generation(self):
         draft = "\n".join(

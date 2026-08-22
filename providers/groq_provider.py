@@ -226,6 +226,15 @@ class GroqProvider(LLMProvider):
                         self._reserve_retry_window(self._min_interval_seconds)
                         choice = data["choices"][0]
                         message = choice["message"]
+                        completion_metadata = kwargs.get("completion_metadata")
+                        if isinstance(completion_metadata, dict):
+                            completion_metadata.update(
+                                {
+                                    "provider": self.name,
+                                    "model": request_model,
+                                    "finish_reason": choice.get("finish_reason"),
+                                }
+                            )
                         content = message.get("content")
                         if not content:
                             raise ValueError(

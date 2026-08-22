@@ -55,9 +55,6 @@ QUALITY_DRAFT_MAX_CHARS = min(
     6000,
     max(3000, int(os.environ.get("QUALITY_DRAFT_MAX_CHARS", "6000"))),
 )
-QUALITY_EVALUATION_BATCHES = max(
-    1, int(os.environ.get("QUALITY_EVALUATION_BATCHES", "1"))
-)
 QUALITY_MAX_TOKENS = min(
     700,
     max(512, int(os.environ.get("QUALITY_MAX_TOKENS", "700"))),
@@ -401,8 +398,27 @@ def _relevant_evidence_excerpt(source, draft: str, max_chars: int) -> str:
     return "\n\n".join(selected)[:max_chars]
 
 
+def _compact_excerpt(value: str, max_chars: int) -> str:
+    """Keep the beginning and end of a section within its shared budget."""
+    text = str(value or "").strip()
+    if len(text) <= max_chars:
+        return text
+    marker = "\n[section excerpt truncated]\n"
+    if max_chars <= len(marker):
+        return text[:max_chars]
+    remaining = max_chars - len(marker)
+    head_chars = max(1, int(remaining * 0.7))
+    tail_chars = max(0, remaining - head_chars)
+    return f"{text[:head_chars]}{marker}{text[-tail_chars:] if tail_chars else ''}"
+
+
 def _review_groups(state: dict, draft: str) -> list[tuple[dict, str]]:
-    """Build a small fixed number of matching evidence/draft review groups."""
+    """Build one balanced, proposal-wide review request.
+
+    Deterministic section checks run locally. The LLM judge receives one
+    bounded excerpt from every generated section, avoiding one paid request per
+    section while retaining whole-proposal coverage.
+    """
     evidence = state.get("generation_evidence") or {}
     section_batches = evidence.get("section_batches") or []
     usable = [
@@ -411,117 +427,77 @@ def _review_groups(state: dict, draft: str) -> list[tuple[dict, str]]:
         if isinstance(batch, dict) and str(batch.get("draft", "")).strip()
     ]
     if not usable:
-        return [(evidence, draft)]
+        return [(evidence, draft[:QUALITY_DRAFT_MAX_CHARS])]
 
-    # Pack consecutive section drafts without exceeding the reviewer input cap.
-    # The configured batch count can request smaller groups, but never groups
-    # large enough to silently discard later sections.
-    total_draft_chars = (
-        sum(len(str(batch.get("draft", ""))) for batch in usable)
-        + max(0, len(usable) - 1) * 2
+    section_count = len(usable)
+    separators = max(0, section_count - 1) * 2
+    per_section_draft = max(
+        1, (QUALITY_DRAFT_MAX_CHARS - separators) // section_count
     )
-    configured_target = (
-        total_draft_chars + QUALITY_EVALUATION_BATCHES - 1
-    ) // QUALITY_EVALUATION_BATCHES
-    target_group_chars = min(
-        QUALITY_DRAFT_MAX_CHARS,
-        max(1, configured_target),
-    )
-    selected_groups: list[list[dict]] = []
-    current_group: list[dict] = []
-    current_chars = 0
+    compact_drafts = []
     for batch in usable:
-        batch_chars = len(str(batch.get("draft", "")))
-        separator_chars = 2 if current_group else 0
-        if (
-            current_group
-            and current_chars + separator_chars + batch_chars
-            > target_group_chars
-        ):
-            selected_groups.append(current_group)
-            current_group = []
-            current_chars = 0
-            separator_chars = 0
-        current_group.append(batch)
-        current_chars += separator_chars + batch_chars
-    if current_group:
-        selected_groups.append(current_group)
+        section_draft = str(batch.get("draft", "")).strip()
+        compact_drafts.append(
+            _compact_excerpt(section_draft, per_section_draft)
+        )
+    group_draft = "\n\n".join(compact_drafts)[:QUALITY_DRAFT_MAX_CHARS]
 
-    groups = []
-    for selected in selected_groups:
-        group_draft = "\n\n".join(str(batch["draft"]) for batch in selected)
+    def exact_or_fallback(field: str):
+        candidates = [
+            batch.get(field)
+            for batch in usable
+            if str(batch.get(field, "")).strip()
+        ]
+        if candidates:
+            return max(candidates, key=lambda value: len(str(value)))
+        return evidence.get(field, "")
 
-        def exact_or_fallback(field: str):
-            candidates = [
-                batch.get(field)
-                for batch in selected
-                if str(batch.get(field, "")).strip()
-            ]
-            if candidates:
-                return max(candidates, key=lambda value: len(str(value)))
-            return evidence.get(field, "")
-
-        # Company knowledge comes first so a final character cap can never
-        # silently remove the CV/reference proof while retaining market prose.
-        group_evidence = {
-            "company_knowledge": {
-                "project_references": _relevant_evidence_excerpt(
-                    exact_or_fallback("project_references"),
-                    group_draft,
-                    1200,
-                ),
-                "cv_excerpts": _relevant_evidence_excerpt(
-                    exact_or_fallback("cv_excerpts"),
-                    group_draft,
-                    1200,
-                ),
-                "past_proposals": _relevant_evidence_excerpt(
-                    exact_or_fallback("past_proposals"),
-                    group_draft,
-                    300,
-                ),
-                "provenance": (
-                    "Retrieved from company AnythingLLM/Qdrant workspaces. "
-                    "CVs and project references may support bidder claims. "
-                    "Past proposals are tone/structure evidence unless they "
-                    "explicitly contain the claimed company fact."
-                ),
-            },
-            "requirements": _relevant_evidence_excerpt(
-                exact_or_fallback("requirements"),
-                group_draft,
-                800,
+    per_section_evidence = max(1, 2600 // section_count)
+    tender_budget = max(1, int(per_section_evidence * 0.7))
+    template_budget = max(0, per_section_evidence - tender_budget)
+    group_evidence = {
+        "company_knowledge": {
+            "project_references": _relevant_evidence_excerpt(
+                exact_or_fallback("project_references"), group_draft, 600
             ),
-            "section_evidence": [
-                {
-                    "sections": batch.get("sections", []),
-                    "tender_excerpts": _relevant_evidence_excerpt(
-                        batch.get("tender_excerpts", ""),
-                        str(batch.get("draft", "")),
-                        500,
-                    ),
-                    "response_template_excerpts": _relevant_evidence_excerpt(
-                        batch.get("response_template_excerpts", ""),
-                        str(batch.get("draft", "")),
-                        300,
-                    ),
-                }
-                for batch in selected
-            ],
-            "market_research": {
-                "summary": _relevant_evidence_excerpt(
-                    exact_or_fallback("research_summary"),
-                    group_draft,
-                    300,
+            "cv_excerpts": _relevant_evidence_excerpt(
+                exact_or_fallback("cv_excerpts"), group_draft, 600
+            ),
+            "past_proposals": _relevant_evidence_excerpt(
+                exact_or_fallback("past_proposals"), group_draft, 100
+            ),
+            "provenance": (
+                "Company CVs/references may support bidder claims; past "
+                "proposals are style evidence unless explicit."
+            ),
+        },
+        "requirements": _relevant_evidence_excerpt(
+            exact_or_fallback("requirements"), group_draft, 500
+        ),
+        "section_evidence": [
+            {
+                "section": batch.get("sections", []),
+                "tender": _relevant_evidence_excerpt(
+                    batch.get("tender_excerpts", ""),
+                    str(batch.get("draft", "")),
+                    tender_budget,
                 ),
-                "provenance": (
-                    "External context only; it cannot prove the bidding "
-                    "company's experience, staff, projects, or certifications."
+                "template": _relevant_evidence_excerpt(
+                    batch.get("response_template_excerpts", ""),
+                    str(batch.get("draft", "")),
+                    template_budget,
                 ),
-            },
-        }
-        groups.append((group_evidence, group_draft))
-    return groups
+            }
+            for batch in usable
+        ],
+        "market_research": {
+            "summary": _relevant_evidence_excerpt(
+                exact_or_fallback("research_summary"), group_draft, 150
+            ),
+            "provenance": "External context only; never bidder evidence.",
+        },
+    }
+    return [(group_evidence, group_draft)]
 
 
 def _merge_reviews(reviews: list[dict]) -> dict:
