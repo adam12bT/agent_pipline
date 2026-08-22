@@ -14,6 +14,7 @@ from rfp.agents.generation.implementation import (
     _proposal_structure,
     _recover_single_section_response,
     _has_substantive_section_body,
+    _salvage_truncated_section,
     _section_batches,
     _split_batch_sections,
     generation_agent,
@@ -60,6 +61,20 @@ class ResponseTemplateQualityTests(unittest.TestCase):
     def test_provider_token_limit_is_detected(self):
         self.assertTrue(_completion_was_truncated({"finish_reason": "length"}))
         self.assertFalse(_completion_was_truncated({"finish_reason": "stop"}))
+
+    def test_truncated_section_is_trimmed_at_complete_sentence(self):
+        section = "Dynamic client section"
+        complete = " ".join(["Grounded delivery detail"] * 20) + "."
+        unfinished = " This final thought was cut in the middle of an unfinished"
+
+        salvaged = _salvage_truncated_section(
+            f"## {section}\n\n{complete}{unfinished}",
+            maximum_words=200,
+        )
+
+        self.assertIn(complete, salvaged)
+        self.assertNotIn("unfinished", salvaged)
+        self.assertTrue(_has_substantive_section_body(salvaged))
 
     def test_dynamic_output_budget_has_room_for_largest_section(self):
         with patch.dict(os.environ, {}, clear=False):

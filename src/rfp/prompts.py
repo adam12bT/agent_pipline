@@ -129,6 +129,8 @@ without substantive body text. Level-three (`###`) subsections are allowed insid
 
 Follow the target word range printed beneath each assigned heading. Use the range to produce substantive analysis, concrete activities, outputs, acceptance criteria, dependencies, controls, and traceability where they are relevant to that section. Tables count toward the target. Never pad a section with unsupported claims or repetitive filler merely to reach its target; when the required company evidence is missing, use the mandated transparent placeholder and keep that part concise. Emit every exact Markdown heading assigned to this batch.
 
+The upper end of each target word range is a hard maximum. Finish the current section cleanly before reaching it; do not continue expanding the answer after all required points are covered.
+
 For bidder-specific content, use only the supplied company knowledge. Tender requirements describe \
 what the bidder must provide; they are not evidence that the bidder already has that experience, \
 certification, staff member, project, product, or capability. Never write that internal records, \

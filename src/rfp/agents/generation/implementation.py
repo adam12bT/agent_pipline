@@ -390,6 +390,47 @@ def _completion_was_truncated(metadata: dict) -> bool:
     return reason in {"length", "max_tokens", "max_token", "token_limit"}
 
 
+def _salvage_truncated_section(block: str, maximum_words: int) -> str:
+    """Trim an overlong provider response at its last complete safe boundary."""
+    lines = block.strip().splitlines()
+    heading = ""
+    if lines and re.match(r"^\s{0,3}#{1,6}\s+", lines[0]):
+        heading = lines.pop(0).strip()
+    body = "\n".join(lines).strip()
+    word_matches = list(
+        re.finditer(r"\b[\wÀ-ÖØ-öø-ÿ'-]+\b", body, flags=re.UNICODE)
+    )
+    if len(word_matches) < 12:
+        return ""
+
+    word_cap = max(12, int(maximum_words))
+    if len(word_matches) > word_cap:
+        candidate = body[: word_matches[word_cap - 1].end()].rstrip()
+    else:
+        candidate = body
+
+    # A provider can stop in the middle of a word, sentence, list item, or table.
+    # Retain the last complete sentence or complete Markdown/table line.
+    if candidate == body and re.search(r"[.!?;:|\]\)]\s*$", candidate):
+        trimmed = candidate
+    else:
+        boundaries = [
+            match.end()
+            for match in re.finditer(
+                r"(?:[.!?][\"'’”\]\)]*|\|)\s*(?=\n|\s|$)",
+                candidate,
+            )
+        ]
+        minimum_boundary = word_matches[min(11, len(word_matches) - 1)].end()
+        valid_boundaries = [end for end in boundaries if end >= minimum_boundary]
+        if not valid_boundaries:
+            return ""
+        trimmed = candidate[: valid_boundaries[-1]].rstrip()
+
+    result = f"{heading}\n\n{trimmed}".strip() if heading else trimmed
+    return result if _has_substantive_section_body(result) else ""
+
+
 def _merge_section_drafts(
     previous_draft: str,
     all_sections: list[str],
@@ -600,6 +641,10 @@ def generation_agent(state: dict, *, rag=None, knowledge=None) -> dict:
         max(8000, int(os.environ.get("GENERATION_PROMPT_MAX_CHARS", "11000"))),
     )
     all_sections = _proposal_sections(response_template_rules)
+    _, section_maximum_words, _ = _template_section_word_target(
+        response_template_rules,
+        len(all_sections),
+    )
     batch_max_tokens = _batch_output_token_limit(
         response_template_rules,
         len(all_sections),
@@ -744,12 +789,7 @@ def generation_agent(state: dict, *, rag=None, knowledge=None) -> dict:
             ).strip()
             if not batch_draft:
                 raise ValueError("the model returned an empty section batch")
-            if _completion_was_truncated(completion_metadata):
-                raise ValueError(
-                    "the model reached its output-token limit before completing the "
-                    f"section (limit={batch_max_tokens}); increase "
-                    "GENERATION_BATCH_MAX_TOKENS"
-                )
+            reached_token_limit = _completion_was_truncated(completion_metadata)
             batch_draft = _repair_mojibake(batch_draft)
             batch_draft, unmatched_headings = _normalize_batch_headings(
                 batch_draft, sections
@@ -772,10 +812,34 @@ def generation_agent(state: dict, *, rag=None, knowledge=None) -> dict:
                 sections,
                 generated_sections,
             )
+            if reached_token_limit:
+                salvaged_sections = {
+                    section: _salvage_truncated_section(block, section_maximum_words)
+                    for section, block in generated_sections.items()
+                }
+                generated_sections = {
+                    section: block
+                    for section, block in salvaged_sections.items()
+                    if block
+                }
+                batch_evidence["provider_finish_reason"] = completion_metadata.get(
+                    "finish_reason"
+                )
+                batch_evidence["truncated_output_salvaged"] = bool(
+                    generated_sections
+                )
+                if generated_sections:
+                    logger.warning(
+                        "Generation batch %d/%d reached its %d-token output limit; "
+                        "preserved complete content at a safe boundary",
+                        batch_number,
+                        len(batches),
+                        batch_max_tokens,
+                    )
             if not generated_sections:
                 raise ValueError(
-                    "the model did not return substantive content for the assigned "
-                    "template section"
+                    "the model did not return complete substantive content for the "
+                    "assigned template section"
                 )
             # Keep only the sections assigned to this request. This prevents an
             # outline continuation from leaking into the preceding card/draft.
